@@ -1,8 +1,7 @@
 const cron = require('node-cron');
-const { PrismaClient } = require('@prisma/client');
 const { runPipeline } = require('./pipeline');
 
-const prisma = new PrismaClient();
+const prisma = require('../db');
 const scheduledJobs = new Map();
 
 async function startScheduler(io) {

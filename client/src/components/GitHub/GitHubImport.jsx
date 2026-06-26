@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { GithubIcon, CircleCheckBigIcon } from "@animateicons/react/lucide";
 import api from '../../utils/api';
 import { useToast } from '../../context/ToastContext';
@@ -10,7 +10,21 @@ export default function GitHubImport({ boardId, columns }) {
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState(false);
   const [result, setResult] = useState(null);
+  const [history, setHistory] = useState([]);
   const { addToast } = useToast();
+
+  useEffect(() => {
+    fetchHistory();
+  }, [boardId]);
+
+  const fetchHistory = async () => {
+    try {
+      const data = await api.getImportHistory(boardId);
+      setHistory(data || []);
+    } catch (err) {
+      console.error('Failed to fetch history', err);
+    }
+  };
 
   const handlePreview = async () => {
     if (!repoUrl.trim()) return;
@@ -39,7 +53,8 @@ export default function GitHubImport({ boardId, columns }) {
     try {
       const data = await api.importIssues(boardId, { repoUrl: repoUrl.trim(), targetColumnId });
       setResult(data);
-      addToast(`Imported ${data.imported} issues!`, 'success');
+      addToast(`Imported ${data.imported} cards!`, 'success');
+      fetchHistory(); 
     } catch (err) {
       addToast(err.message || 'Import failed', 'error');
     } finally {
@@ -56,38 +71,73 @@ export default function GitHubImport({ boardId, columns }) {
         Import open issues from any public GitHub repository. Labels and assignees are mapped automatically.
       </p>
 
-      <div className="github-input-row">
+      <div className="github-input-row" style={{ display: 'flex', gap: '8px', marginBottom: '24px' }}>
         <input
           className="input"
           value={repoUrl}
           onChange={e => setRepoUrl(e.target.value)}
           placeholder="https://github.com/owner/repo"
           onKeyDown={e => e.key === 'Enter' && handlePreview()}
-          style={{ border: '1px solid var(--outline-variant)' }}
+          style={{ flex: 1, border: '1px solid var(--outline-variant)' }}
+          disabled={loading || importing}
         />
-        <button className="btn btn-primary" onClick={handlePreview} disabled={loading}>
+        <button className="btn btn-primary" onClick={handlePreview} disabled={!repoUrl.trim() || loading || importing}>
           {loading ? 'Loading...' : 'Preview'}
         </button>
       </div>
 
-      {preview && (
-        <div style={{ marginTop: 24 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+      {preview && !result && (
+        <div style={{ marginTop: 24, padding: '16px', border: '1px solid var(--outline-variant)', borderRadius: 'var(--radius-lg)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
             <div>
               <strong className="title-md">{preview.owner}/{preview.repo}</strong>
-              <div className="label-md" style={{ color: 'var(--outline)', marginTop: 4 }}>
-                {preview.totalIssues} open issues · {preview.alreadyImportedCount} already imported
+              <div className="body-sm" style={{ color: 'var(--outline)', marginTop: 4 }}>
+                {preview.newCount} issues will be imported ({preview.alreadyImported} already imported, will be skipped)
               </div>
             </div>
           </div>
 
+          {preview.samples?.length > 0 && (
+            <div style={{ background: 'var(--surface-container-lowest)', borderRadius: 'var(--radius)', padding: '12px', marginBottom: '16px' }}>
+              <div className="label-sm" style={{ marginBottom: '8px', color: 'var(--outline)', fontWeight: 'bold' }}>SAMPLES</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {preview.samples.map(issue => (
+                  <div key={issue.number} style={{ display: 'flex', alignItems: 'center', gap: '8px', opacity: issue.alreadyImported ? 0.5 : 1 }}>
+                    <span style={{ color: 'var(--outline)', minWidth: '40px' }}>#{issue.number}</span>
+                    <span style={{ flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{issue.title}</span>
+                    <div style={{ display: 'flex', gap: '4px' }}>
+                      {issue.labels.map(l => (
+                        <span key={l.name} style={{
+                          backgroundColor: `${l.color}18`,
+                          color: l.color,
+                          fontSize: 10,
+                          padding: '2px 6px',
+                          borderRadius: '10px',
+                          border: `1px solid ${l.color}40`
+                        }}>
+                          {l.name}
+                        </span>
+                      ))}
+                    </div>
+                    {issue.hasAssignee && (
+                      <span title="Has assignee" style={{ display: 'flex', alignItems: 'center', color: 'var(--outline)' }}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="input-group" style={{ marginBottom: 16 }}>
-            <label className="input-label">Import to Column</label>
+            <label className="input-label">Import into</label>
             <select
               className="input"
               value={targetColumnId}
               onChange={e => setTargetColumnId(e.target.value)}
-              style={{ border: '1px solid var(--outline-variant)', borderRadius: 'var(--radius)', padding: '8px 12px' }}
+              style={{ border: '1px solid var(--outline-variant)', borderRadius: 'var(--radius)', padding: '8px 12px', width: '100%' }}
+              disabled={importing}
             >
               {columns?.map(col => (
                 <option key={col.id} value={col.id}>{col.name}</option>
@@ -95,41 +145,52 @@ export default function GitHubImport({ boardId, columns }) {
             </select>
           </div>
 
-          <div className="github-preview-list">
-            {preview.previewIssues.map(issue => (
-              <div key={issue.number} className={`github-issue-row ${issue.alreadyImported ? 'imported' : ''}`}>
-                <span className="github-issue-number">#{issue.number}</span>
-                <span className="github-issue-title">{issue.title}</span>
-                {issue.labels.map(l => (
-                  <span key={l.name} className="label-chip" style={{
-                    backgroundColor: `${l.color}18`,
-                    color: l.color,
-                    fontSize: 10,
-                  }}>
-                    {l.name}
-                  </span>
-                ))}
-                {issue.alreadyImported && <span className="chip chip-neutral">Imported</span>}
-              </div>
-            ))}
-            {preview.hasMore && (
-              <div style={{ padding: 12, textAlign: 'center', color: 'var(--outline)', fontSize: 13 }}>
-                ... and {preview.totalIssues - preview.previewIssues.length} more issues
-              </div>
-            )}
-          </div>
-
-          <div style={{ marginTop: 16, display: 'flex', gap: 12 }}>
-            <button className="btn btn-primary btn-lg" onClick={handleImport} disabled={importing}>
-              {importing ? 'Importing...' : `Import ${preview.totalIssues - preview.alreadyImportedCount} Issues`}
+          <div style={{ display: 'flex', gap: 12 }}>
+            <button className="btn btn-primary" onClick={handleImport} disabled={importing || preview.newCount === 0}>
+              {importing ? 'Importing issues...' : `Import ${preview.newCount} issues`}
+            </button>
+            <button className="btn btn-ghost" onClick={() => setPreview(null)} disabled={importing}>
+              Cancel
             </button>
           </div>
+        </div>
+      )}
 
-          {result && (
-            <div style={{ marginTop: 16, padding: 16, borderRadius: 'var(--radius-md)', background: 'var(--surface-container-highest)', color: 'var(--secondary)', display: 'flex', alignItems: 'center', gap: 8 }}>
-              <CircleCheckBigIcon size="20" /> Imported {result.imported} issues, skipped {result.skipped} duplicates
-            </div>
-          )}
+      {result && (
+        <div style={{ marginTop: 24, padding: 16, borderRadius: 'var(--radius-md)', background: 'var(--surface-container-highest)', display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--success)' }}>
+            <CircleCheckBigIcon size="24" />
+            <strong className="title-md">Import Complete</strong>
+          </div>
+          <div className="body-md">
+            ✓ {result.imported} cards created, {result.skipped} duplicates skipped.
+          </div>
+          <div>
+            <button className="btn btn-ghost btn-sm" onClick={() => { setPreview(null); setResult(null); setRepoUrl(''); }}>
+              Import another repository
+            </button>
+          </div>
+        </div>
+      )}
+
+      {history.length > 0 && (
+        <div style={{ marginTop: 40 }}>
+          <h3 className="title-md" style={{ marginBottom: 16 }}>Import History</h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {history.map(item => (
+              <div key={item.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', background: 'var(--surface-container-lowest)', borderRadius: 'var(--radius)', border: '1px solid var(--outline-variant)' }}>
+                <div>
+                  <div className="label-md" style={{ fontWeight: 'bold' }}>{item.repoUrl}</div>
+                  <div className="body-sm" style={{ color: 'var(--outline)', display: 'flex', alignItems: 'center', gap: 4, marginTop: 4 }}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg> Last imported: {new Date(item.lastSyncAt).toLocaleString()}
+                  </div>
+                </div>
+                <div className="label-md" style={{ background: 'var(--surface-container)', padding: '4px 8px', borderRadius: '4px' }}>
+                  {item.issueCount} total issues
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>

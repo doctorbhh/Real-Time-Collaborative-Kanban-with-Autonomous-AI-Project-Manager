@@ -1,9 +1,9 @@
 const express = require('express');
-const { PrismaClient } = require('@prisma/client');
 const { requireAuth, requireBoardMember } = require('../middleware/auth');
+const { inferSingleCardComplexity } = require('../ai/complexity');
 
 const router = express.Router();
-const prisma = new PrismaClient();
+const prisma = require('../db');
 
 router.post('/:boardId/cards', requireAuth, requireBoardMember, async (req, res) => {
   try {
@@ -14,14 +14,14 @@ router.post('/:boardId/cards', requireAuth, requireBoardMember, async (req, res)
 
     const maxPos = await prisma.card.aggregate({
       where: { columnId },
-      _max: { position: true },
+      _max: { order: true },
     });
 
     const card = await prisma.card.create({
       data: {
         title,
         description: description || null,
-        position: (maxPos._max.position ?? -1) + 1,
+        order: (maxPos._max.order ?? -1) + 1,
         columnId,
         assigneeId: assigneeId || null,
         referenceUrl: referenceUrl || null,
@@ -41,9 +41,13 @@ router.post('/:boardId/cards', requireAuth, requireBoardMember, async (req, res)
     });
 
     const io = req.app.get('io');
-    io.to(req.params.boardId).emit('card:created', { card });
+    io.to(`board:${req.params.boardId}`).emit('card:created', { card });
 
     res.status(201).json({ card });
+
+    inferSingleCardComplexity(card.id, req.params.boardId, io).catch(err => {
+      console.error('Non-blocking complexity inference failed:', err);
+    });
   } catch (err) {
     console.error('Create card error:', err);
     res.status(500).json({ error: 'Failed to create card' });
@@ -79,17 +83,14 @@ router.get('/:boardId/cards/:cardId', requireAuth, requireBoardMember, async (re
 
 router.patch('/:boardId/cards/:cardId', requireAuth, requireBoardMember, async (req, res) => {
   try {
-    const { title, description, assigneeId, complexity, complexitySuggested, version, labelIds } = req.body;
+    const { title, description, assigneeId, complexity, complexitySuggested, baseVersion, labelIds } = req.body;
 
-    if (version !== undefined) {
-      const existing = await prisma.card.findUnique({ where: { id: req.params.cardId } });
-      if (existing && existing.version !== version) {
-        return res.status(409).json({
-          error: 'Conflict detected',
-          serverVersion: existing.version,
-          serverData: existing,
-        });
-      }
+    const existing = await prisma.card.findUnique({ where: { id: req.params.cardId } });
+    if (!existing) return res.status(404).json({ error: 'Card not found' });
+
+    let conflictDetected = false;
+    if (baseVersion !== undefined && existing.version !== baseVersion) {
+      conflictDetected = true;
     }
 
     const updateData = { version: { increment: 1 } };
@@ -109,6 +110,7 @@ router.patch('/:boardId/cards/:cardId', requireAuth, requireBoardMember, async (
       },
     });
 
+    let finalCard = card;
     if (labelIds !== undefined) {
       await prisma.cardLabel.deleteMany({ where: { cardId: card.id } });
       if (labelIds.length > 0) {
@@ -116,21 +118,35 @@ router.patch('/:boardId/cards/:cardId', requireAuth, requireBoardMember, async (
           data: labelIds.map(labelId => ({ cardId: card.id, labelId })),
         });
       }
+      finalCard = await prisma.card.findUnique({
+        where: { id: req.params.cardId },
+        include: {
+          labels: { include: { label: true } },
+          assignee: { select: { id: true, name: true, avatarUrl: true } },
+          _count: { select: { comments: true } },
+        }
+      });
     }
+
+    const user = await prisma.user.findUnique({ where: { id: req.userId }, select: { name: true } });
 
     await prisma.activity.create({
       data: {
         action: 'edited',
-        details: { fields: Object.keys(req.body).filter(k => k !== 'version') },
-        cardId: card.id,
+        details: { fields: Object.keys(req.body).filter(k => k !== 'baseVersion') },
+        cardId: finalCard.id,
         userId: req.userId,
       },
     });
 
     const io = req.app.get('io');
-    io.to(req.params.boardId).emit('card:updated', { card });
+    io.to(`board:${req.params.boardId}`).emit('card:updated', { 
+      card: finalCard, 
+      conflictDetected, 
+      updatedBy: user?.name 
+    });
 
-    res.json({ card });
+    res.json({ card: finalCard, conflictDetected });
   } catch (err) {
     console.error('Update card error:', err);
     res.status(500).json({ error: 'Failed to update card' });
@@ -139,39 +155,28 @@ router.patch('/:boardId/cards/:cardId', requireAuth, requireBoardMember, async (
 
 router.patch('/:boardId/cards/:cardId/move', requireAuth, requireBoardMember, async (req, res) => {
   try {
-    const { toColumnId, newPosition } = req.body;
-    const card = await prisma.card.findUnique({ where: { id: req.params.cardId } });
-    if (!card) return res.status(404).json({ error: 'Card not found' });
+    const { toColumnId, order } = req.body;
+    const existingCard = await prisma.card.findUnique({ where: { id: req.params.cardId } });
+    if (!existingCard) return res.status(404).json({ error: 'Card not found' });
 
-    const fromColumnId = card.columnId;
+    const fromColumnId = existingCard.columnId;
 
-    await prisma.$transaction(async (tx) => {
-      if (fromColumnId !== toColumnId) {
-        await tx.card.updateMany({
-          where: { columnId: fromColumnId, position: { gt: card.position } },
-          data: { position: { decrement: 1 } },
-        });
-        await tx.card.updateMany({
-          where: { columnId: toColumnId, position: { gte: newPosition } },
-          data: { position: { increment: 1 } },
-        });
-      } else {
-        if (newPosition > card.position) {
-          await tx.card.updateMany({
-            where: { columnId: toColumnId, position: { gt: card.position, lte: newPosition } },
-            data: { position: { decrement: 1 } },
-          });
-        } else if (newPosition < card.position) {
-          await tx.card.updateMany({
-            where: { columnId: toColumnId, position: { gte: newPosition, lt: card.position } },
-            data: { position: { increment: 1 } },
-          });
-        }
-      }
+    let finalOrder = order;
 
-      await tx.card.update({
+    const card = await prisma.$transaction(async (tx) => {
+      const updatedCard = await tx.card.update({
         where: { id: req.params.cardId },
-        data: { columnId: toColumnId, position: newPosition, version: { increment: 1 } },
+        data: { 
+          columnId: toColumnId, 
+          order: finalOrder, 
+          movedAt: new Date(),
+          version: { increment: 1 } 
+        },
+        include: {
+          labels: { include: { label: true } },
+          assignee: { select: { id: true, name: true, avatarUrl: true } },
+          _count: { select: { comments: true } },
+        }
       });
 
       await tx.activity.create({
@@ -182,17 +187,49 @@ router.patch('/:boardId/cards/:cardId/move', requireAuth, requireBoardMember, as
           userId: req.userId,
         },
       });
+
+      const cardsInColumn = await tx.card.findMany({ 
+        where: { columnId: toColumnId }, 
+        orderBy: { order: 'asc' } 
+      });
+      
+      let minGap = Infinity;
+      for (let i = 1; i < cardsInColumn.length; i++) {
+        const gap = cardsInColumn[i].order - cardsInColumn[i-1].order;
+        if (gap < minGap) minGap = gap;
+      }
+
+      if (minGap < 0.001 && cardsInColumn.length > 1) {
+        console.log(`Rebalancing column ${toColumnId} due to low gap ${minGap}`);
+        for (let i = 0; i < cardsInColumn.length; i++) {
+          const newOrder = (i + 1) * 1.0;
+          await tx.card.update({ 
+            where: { id: cardsInColumn[i].id }, 
+            data: { order: newOrder } 
+          });
+          if (cardsInColumn[i].id === req.params.cardId) {
+            updatedCard.order = newOrder;
+            finalOrder = newOrder;
+          }
+        }
+      }
+
+      return updatedCard;
     });
 
+    const user = await prisma.user.findUnique({ where: { id: req.userId }, select: { name: true } });
+
     const io = req.app.get('io');
-    io.to(req.params.boardId).emit('card:moved', {
+    io.to(`board:${req.params.boardId}`).emit('card:moved', {
       cardId: req.params.cardId,
       fromColumnId,
       toColumnId,
-      newPosition,
+      order: finalOrder,
+      card,
+      movedBy: user?.name,
     });
 
-    res.json({ ok: true });
+    res.json({ ok: true, card });
   } catch (err) {
     console.error('Move card error:', err);
     res.status(500).json({ error: 'Failed to move card' });
@@ -201,10 +238,16 @@ router.patch('/:boardId/cards/:cardId/move', requireAuth, requireBoardMember, as
 
 router.delete('/:boardId/cards/:cardId', requireAuth, requireBoardMember, async (req, res) => {
   try {
+    const card = await prisma.card.findUnique({ where: { id: req.params.cardId } });
+    if (!card) return res.status(404).json({ error: 'Card not found' });
+    
     await prisma.card.delete({ where: { id: req.params.cardId } });
 
     const io = req.app.get('io');
-    io.to(req.params.boardId).emit('card:deleted', { cardId: req.params.cardId });
+    io.to(`board:${req.params.boardId}`).emit('card:deleted', { 
+      cardId: req.params.cardId,
+      columnId: card.columnId 
+    });
 
     res.json({ ok: true });
   } catch (err) {

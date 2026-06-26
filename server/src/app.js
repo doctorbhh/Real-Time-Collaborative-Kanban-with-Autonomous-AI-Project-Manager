@@ -22,7 +22,10 @@ app.use(helmet({ contentSecurityPolicy: false }));
 app.use(compression());
 
 app.use(cors({
-  origin: process.env.CLIENT_URL || 'http://localhost:5173',
+  origin: [
+    process.env.CLIENT_URL || 'http://localhost:5173',
+    /^chrome-extension:\/\//,
+  ],
   credentials: true,
 }));
 
@@ -40,7 +43,7 @@ app.use(session({
   cookie: {
     secure: process.env.NODE_ENV === 'production',
     httpOnly: true,
-    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    maxAge: 7 * 24 * 60 * 60 * 1000, 
     sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
   },
 }));

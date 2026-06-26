@@ -1,36 +1,27 @@
 const express = require('express');
-const { PrismaClient } = require('@prisma/client');
 const { requireAuth, requireBoardMember } = require('../middleware/auth');
+const { Octokit } = require('@octokit/rest');
+const prisma = require('../db');
 
 const router = express.Router();
-const prisma = new PrismaClient();
 
-function parseGithubUrl(url) {
-  const match = url.match(/github\.com\/([^/]+)\/([^/]+)/);
+const octokit = new Octokit({
+  auth: process.env.GITHUB_TOKEN,
+  userAgent: 'kanban-ai/1.0',
+});
+
+function parseRepoUrl(url) {
+  const match = url
+    .trim()
+    .match(/github\.com\/([a-zA-Z0-9_.-]+)\/([a-zA-Z0-9_.-]+?)(?:\.git)?(?:\/.*)?$/);
   if (!match) return null;
-  return { owner: match[1], repo: match[2].replace('.git', '') };
+  return { owner: match[1], repo: match[2] };
 }
 
-async function fetchGithubIssues(owner, repo, page = 1, perPage = 100) {
-  const url = `https://api.github.com/repos/${owner}/${repo}/issues?state=open&per_page=${perPage}&page=${page}&sort=created&direction=desc`;
-  const response = await fetch(url, {
-    headers: {
-      'Accept': 'application/vnd.github.v3+json',
-      'User-Agent': 'KanbanAI-Scraper',
-    },
-  });
-
-  if (!response.ok) {
-    throw new Error(`GitHub API error: ${response.status} ${response.statusText}`);
-  }
-
-  const issues = await response.json();
-  const filtered = issues.filter(i => !i.pull_request);
-
-  const linkHeader = response.headers.get('link');
-  const hasMore = linkHeader && linkHeader.includes('rel="next"');
-
-  return { issues: filtered, hasMore };
+function getTotalCountFromLinkHeader(link) {
+  if (!link) return 0;
+  const match = link.match(/page=(\d+)>; rel="last"/);
+  return match ? parseInt(match[1]) : 1;
 }
 
 router.post('/:boardId/github-import/preview', requireAuth, requireBoardMember, async (req, res) => {
@@ -38,164 +29,217 @@ router.post('/:boardId/github-import/preview', requireAuth, requireBoardMember, 
     const { repoUrl } = req.body;
     if (!repoUrl) return res.status(400).json({ error: 'Repository URL is required' });
 
-    const parsed = parseGithubUrl(repoUrl);
-    if (!parsed) return res.status(400).json({ error: 'Invalid GitHub repository URL' });
+    const parsed = parseRepoUrl(repoUrl);
+    if (!parsed) return res.status(400).json({ error: "That doesn't look like a GitHub repository URL" });
 
-    const { issues, hasMore } = await fetchGithubIssues(parsed.owner, parsed.repo, 1, 30);
+    const { owner, repo } = parsed;
+
+    let response;
+    try {
+      response = await octokit.issues.listForRepo({
+        owner,
+        repo,
+        state: 'open',
+        per_page: 10,
+        page: 1,
+      });
+    } catch (err) {
+      if (err.status === 404) {
+        return res.status(404).json({ error: "Repository not found \u2014 make sure it's public and the URL is correct" });
+      }
+      if (err.status === 403 && err.response?.headers['x-ratelimit-remaining'] === '0') {
+        return res.status(429).json({ error: "GitHub rate limit reached. Add a GitHub token to your server environment to increase the limit to 5,000 requests/hour." });
+      }
+      throw err;
+    }
+
+    const totalCount = getTotalCountFromLinkHeader(response.headers.link) || response.data.length;
 
     const existingCards = await prisma.card.findMany({
       where: {
-        githubRepoUrl: repoUrl,
         column: { boardId: req.params.boardId },
+        githubIssueId: { not: null },
       },
       select: { githubIssueId: true },
     });
     const existingIds = new Set(existingCards.map(c => c.githubIssueId));
 
-    const preview = issues.map(issue => ({
-      number: issue.number,
-      title: issue.title,
-      labels: issue.labels.map(l => ({ name: l.name, color: `#${l.color}` })),
-      assignees: issue.assignees.map(a => a.login),
-      alreadyImported: existingIds.has(issue.number),
-      createdAt: issue.created_at,
-    }));
-
-    let totalCount = issues.length;
-    if (hasMore) {
-      const repoRes = await fetch(`https://api.github.com/repos/${parsed.owner}/${parsed.repo}`, {
-        headers: { 'Accept': 'application/vnd.github.v3+json', 'User-Agent': 'KanbanAI-Scraper' },
-      });
-      if (repoRes.ok) {
-        const repoData = await repoRes.json();
-        totalCount = repoData.open_issues_count;
-      }
+    let existingCount = 0;
+    for (const id of existingIds) {
+      if (id.startsWith(`${owner}/${repo}#`)) existingCount++;
     }
 
     res.json({
       repoUrl,
-      owner: parsed.owner,
-      repo: parsed.repo,
-      totalIssues: totalCount,
-      previewIssues: preview,
-      hasMore,
-      alreadyImportedCount: existingIds.size,
+      owner,
+      repo,
+      totalCount,
+      newCount: Math.max(0, totalCount - existingCount),
+      alreadyImported: existingCount,
+      samples: response.data
+        .filter(i => !i.pull_request)
+        .slice(0, 5)
+        .map(i => ({
+          number: i.number,
+          title: i.title,
+          labels: i.labels.map(l => (typeof l === 'string' ? { name: l, color: '#6366f1' } : { name: l.name, color: `#${l.color}` })),
+          hasAssignee: i.assignees && i.assignees.length > 0,
+          alreadyImported: existingIds.has(`${owner}/${repo}#${i.number}`),
+        })),
     });
   } catch (err) {
     console.error('GitHub preview error:', err);
-    res.status(500).json({ error: err.message || 'Failed to preview GitHub issues' });
+    res.status(500).json({ error: 'Could not reach GitHub. Check your server\'s internet connection.' });
   }
 });
 
 router.post('/:boardId/github-import', requireAuth, requireBoardMember, async (req, res) => {
   try {
     const { repoUrl, targetColumnId } = req.body;
+    const { boardId } = req.params;
+
     if (!repoUrl || !targetColumnId) {
       return res.status(400).json({ error: 'Repository URL and target column are required' });
     }
 
-    const parsed = parseGithubUrl(repoUrl);
-    if (!parsed) return res.status(400).json({ error: 'Invalid GitHub repository URL' });
+    const parsed = parseRepoUrl(repoUrl);
+    if (!parsed) return res.status(400).json({ error: "That doesn't look like a GitHub repository URL" });
+    const { owner, repo } = parsed;
 
-    const existingCards = await prisma.card.findMany({
-      where: {
-        githubRepoUrl: repoUrl,
-        column: { boardId: req.params.boardId },
-      },
-      select: { githubIssueId: true },
-    });
-    const existingIds = new Set(existingCards.map(c => c.githubIssueId));
-
-    const boardLabels = await prisma.label.findMany({
-      where: { boardId: req.params.boardId },
-    });
-    const labelMap = new Map(boardLabels.map(l => [l.name.toLowerCase(), l]));
+    const boardLabels = await prisma.label.findMany({ where: { boardId } });
+    const labelMap = new Map(boardLabels.map(l => [l.name.toLowerCase(), l.id]));
 
     const boardMembers = await prisma.boardMember.findMany({
-      where: { boardId: req.params.boardId },
-      include: { user: { select: { id: true, githubUsername: true } } },
+      where: { boardId },
+      include: { user: { select: { id: true, githubUsername: true } } }
     });
-    const memberMap = new Map(
+    const ghUserMap = new Map(
       boardMembers
         .filter(m => m.user.githubUsername)
         .map(m => [m.user.githubUsername.toLowerCase(), m.user.id])
     );
 
+    const existing = await prisma.card.findMany({
+      where: { column: { boardId }, githubIssueId: { not: null } },
+      select: { githubIssueId: true }
+    });
+    const existingIds = new Set(existing.map(c => c.githubIssueId));
+
     let allIssues = [];
     let page = 1;
-    let hasMore = true;
-    while (hasMore) {
-      const result = await fetchGithubIssues(parsed.owner, parsed.repo, page);
-      allIssues = allIssues.concat(result.issues);
-      hasMore = result.hasMore;
+
+    while (true) {
+      let response;
+      try {
+        response = await octokit.issues.listForRepo({
+          owner,
+          repo,
+          state: 'open',
+          per_page: 100,
+          page,
+        });
+      } catch (err) {
+        if (err.status === 404) return res.status(404).json({ error: "Repository not found \u2014 make sure it's public and the URL is correct" });
+        if (err.status === 403 && err.response?.headers['x-ratelimit-remaining'] === '0') {
+          return res.status(429).json({ error: "GitHub rate limit reached. Try again later or add a GitHub token to your server." });
+        }
+        throw err;
+      }
+
+      const issues = response.data.filter(item => !item.pull_request);
+      allIssues.push(...issues);
+
+      if (response.data.length < 100) break;
       page++;
-      if (page > 20) break; // Safety limit
+      await new Promise(resolve => setTimeout(resolve, 100)); 
     }
 
-    const newIssues = allIssues.filter(i => !existingIds.has(i.number));
+    if (allIssues.length === 0) {
+      return res.status(400).json({ error: "This repository has no open issues to import" });
+    }
 
     const maxPos = await prisma.card.aggregate({
       where: { columnId: targetColumnId },
-      _max: { position: true },
+      _max: { order: true },
     });
-    let position = (maxPos._max.position ?? -1) + 1;
+    let order = (maxPos._max.order ?? -1) + 1;
 
-    let importedCount = 0;
+    let imported = 0;
+    let skipped = 0;
 
-    for (const issue of newIssues) {
-      const cardLabelIds = [];
-      for (const ghLabel of issue.labels) {
-        let label = labelMap.get(ghLabel.name.toLowerCase());
-        if (!label) {
-          label = await prisma.label.create({
-            data: { name: ghLabel.name, color: `#${ghLabel.color}`, boardId: req.params.boardId },
-          });
-          labelMap.set(ghLabel.name.toLowerCase(), label);
+    for (const issue of allIssues) {
+      const githubIssueId = `${owner}/${repo}#${issue.number}`;
+      if (existingIds.has(githubIssueId)) {
+        skipped++;
+        continue;
+      }
+
+      try {
+        
+        const labelIds = [];
+        for (const ghLabel of issue.labels) {
+          const name = typeof ghLabel === 'string' ? ghLabel : ghLabel.name ?? '';
+          const color = typeof ghLabel === 'string' ? '#6366f1' : `#${ghLabel.color}`;
+          const key = name.toLowerCase();
+
+          if (!labelMap.has(key)) {
+            const newLabel = await prisma.label.create({
+              data: { boardId, name, color }
+            });
+            labelMap.set(key, newLabel.id);
+          }
+          labelIds.push(labelMap.get(key));
         }
-        cardLabelIds.push(label.id);
-      }
 
-      let assigneeId = null;
-      if (issue.assignees.length > 0) {
-        const ghLogin = issue.assignees[0].login.toLowerCase();
-        assigneeId = memberMap.get(ghLogin) || null;
-      }
+        const assigneeIds = (issue.assignees || [])
+          .map(a => ghUserMap.get(a.login.toLowerCase()))
+          .filter(id => id !== undefined);
 
-      await prisma.card.create({
-        data: {
-          title: issue.title,
-          description: issue.body || null,
-          position: position++,
-          columnId: targetColumnId,
-          assigneeId,
-          githubIssueId: issue.number,
-          githubRepoUrl: repoUrl,
-          referenceUrl: issue.html_url,
-          labels: cardLabelIds.length > 0 ? {
-            create: cardLabelIds.map(labelId => ({ labelId })),
-          } : undefined,
-        },
-      });
-      importedCount++;
+        await prisma.card.create({
+          data: {
+            columnId: targetColumnId,
+            title: `[#${issue.number}] ${issue.title}`,
+            description: issue.body ?? null,
+            referenceUrl: issue.html_url,
+            githubIssueId,
+            githubRepoUrl: repoUrl,
+            order: order++,
+            labels: labelIds.length ? { create: labelIds.map(id => ({ labelId: id })) } : undefined,
+            assigneeId: assigneeIds.length > 0 ? assigneeIds[0] : null,
+          }
+        });
+        imported++;
+      } catch (err) {
+        console.error(`Error importing issue #${issue.number}:`, err);
+        return res.status(500).json({ error: `Import partially failed at issue #${issue.number}. ${imported} cards were created before the error.` });
+      }
     }
 
     await prisma.githubImport.upsert({
-      where: { repoUrl_boardId: { repoUrl, boardId: req.params.boardId } },
-      update: { lastSyncAt: new Date(), issueCount: allIssues.length },
-      create: { repoUrl, boardId: req.params.boardId, issueCount: allIssues.length },
+      where: { repoUrl_boardId: { boardId, repoUrl } },
+      create: { boardId, repoUrl, issueCount: imported },
+      update: { lastSyncAt: new Date(), issueCount: { increment: imported } }
     });
 
     const io = req.app.get('io');
-    io.to(req.params.boardId).emit('board:refresh', { reason: 'github-import' });
+    io.to(`board:${boardId}`).emit('board:refresh', { reason: 'github-import' });
 
-    res.json({
-      imported: importedCount,
-      skipped: allIssues.length - newIssues.length,
-      total: allIssues.length,
-    });
+    res.json({ imported, skipped, total: allIssues.length });
   } catch (err) {
     console.error('GitHub import error:', err);
-    res.status(500).json({ error: err.message || 'Failed to import GitHub issues' });
+    res.status(500).json({ error: err.message || 'Could not reach GitHub. Check your server\'s internet connection.' });
+  }
+});
+
+router.get('/:boardId/github-import/history', requireAuth, requireBoardMember, async (req, res) => {
+  try {
+    const history = await prisma.githubImport.findMany({
+      where: { boardId: req.params.boardId },
+      orderBy: { lastSyncAt: 'desc' },
+    });
+    res.json(history);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch import history' });
   }
 });
 

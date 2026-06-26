@@ -18,7 +18,7 @@ import api from '../../utils/api';
 import { useSocket } from '../../context/SocketContext';
 import { useToast } from '../../context/ToastContext';
 
-export default function BoardView({ board, setBoard }) {
+export default function BoardView({ board, setBoard, searchQuery = '' }) {
   const [selectedCard, setSelectedCard] = useState(null);
   const [activeCard, setActiveCard] = useState(null);
   const [activeColumn, setActiveColumn] = useState(null);
@@ -26,6 +26,9 @@ export default function BoardView({ board, setBoard }) {
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
   const [columnPositions, setColumnPositions] = useState({});
+  const [showFilter, setShowFilter] = useState(false);
+  const [filterAssignee, setFilterAssignee] = useState('');
+  const [filterLabel, setFilterLabel] = useState('');
   const lastPanPosition = useRef({ x: 0, y: 0 });
   const canvasRef = useRef(null);
   const { on, off, joinBoard, leaveBoard, onlineUsers, emit } = useSocket();
@@ -34,13 +37,6 @@ export default function BoardView({ board, setBoard }) {
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
   );
-
-  useEffect(() => {
-    if (board?.id) {
-      joinBoard(board.id);
-      return () => leaveBoard(board.id);
-    }
-  }, [board?.id, joinBoard, leaveBoard]);
 
   useEffect(() => {
     if (board?.columns) {
@@ -350,6 +346,28 @@ export default function BoardView({ board, setBoard }) {
     );
   }
 
+  const query = searchQuery?.toLowerCase() || '';
+  const filteredColumns = board.columns.map(col => {
+    let cards = col.cards || [];
+    
+    // Apply search filter
+    if (query) {
+      cards = cards.filter(c => c.title?.toLowerCase().includes(query) || c.description?.toLowerCase().includes(query));
+    }
+    
+    // Apply assignee filter
+    if (filterAssignee) {
+      cards = cards.filter(c => c.assignee?.id === filterAssignee);
+    }
+    
+    // Apply label filter
+    if (filterLabel) {
+      cards = cards.filter(c => c.labels?.some(l => l.labelId === filterLabel || l.label?.id === filterLabel));
+    }
+    
+    return { ...col, cards };
+  });
+
   return (
     <>
       <div className="board-page-header">
@@ -376,8 +394,12 @@ export default function BoardView({ board, setBoard }) {
           {onlineUsers.length > 0 && (
             <div className="presence-indicator">
               {onlineUsers.slice(0, 5).map((u, i) => (
-                <div key={u.userId || i} className="presence-avatar" title={u.userName}>
-                  {u.userName?.charAt(0).toUpperCase()}
+                <div key={u.userId || i} className="presence-avatar" title={u.name}>
+                  {u.avatar ? (
+                    <img src={u.avatar} alt={u.name} style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }} />
+                  ) : (
+                    u.name?.charAt(0).toUpperCase()
+                  )}
                 </div>
               ))}
               {onlineUsers.length > 5 && (
@@ -387,10 +409,54 @@ export default function BoardView({ board, setBoard }) {
               )}
             </div>
           )}
-          <button className="btn-filter">
-            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>filter_list</span>
-            Filter
-          </button>
+          <div style={{ position: 'relative' }}>
+            <button className="btn-filter" onClick={() => setShowFilter(!showFilter)}>
+              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>filter_list</span>
+              Filter
+              {(filterAssignee || filterLabel) && (
+                <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--primary)', position: 'absolute', top: -2, right: -2 }} />
+              )}
+            </button>
+            {showFilter && (
+              <div className="dropdown-menu" style={{ position: 'absolute', top: '100%', right: 0, marginTop: 8, zIndex: 100, background: 'var(--surface-container-lowest)', border: '1px solid var(--outline-variant)', borderRadius: 'var(--radius)', boxShadow: 'var(--shadow-lg)', padding: 'var(--space-md)', width: 250 }}>
+                <h4 style={{ fontSize: 13, fontWeight: 600, color: 'var(--on-surface)', marginBottom: 12 }}>Filter Cards</h4>
+                
+                <div style={{ marginBottom: 16 }}>
+                  <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--on-surface-variant)', marginBottom: 4 }}>Assignee</label>
+                  <select 
+                    className="input" 
+                    value={filterAssignee} 
+                    onChange={e => setFilterAssignee(e.target.value)}
+                    style={{ width: '100%', padding: '6px 8px', fontSize: 13 }}
+                  >
+                    <option value="">Anyone</option>
+                    {board.members?.map(m => (
+                      <option key={m.user.id} value={m.user.id}>{m.user.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div style={{ marginBottom: 16 }}>
+                  <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--on-surface-variant)', marginBottom: 4 }}>Label</label>
+                  <select 
+                    className="input" 
+                    value={filterLabel} 
+                    onChange={e => setFilterLabel(e.target.value)}
+                    style={{ width: '100%', padding: '6px 8px', fontSize: 13 }}
+                  >
+                    <option value="">Any Label</option>
+                    {board.labels?.map(l => (
+                      <option key={l.id} value={l.id}>{l.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                  <button className="btn btn-ghost btn-sm" onClick={() => { setFilterAssignee(''); setFilterLabel(''); }}>Clear Filters</button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -426,7 +492,7 @@ export default function BoardView({ board, setBoard }) {
               minWidth: '100%',
             }}
           >
-            {board.columns.map(column => (
+            {filteredColumns.map(column => (
               <div 
                 key={column.id} 
                 style={{

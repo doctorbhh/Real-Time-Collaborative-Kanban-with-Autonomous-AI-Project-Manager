@@ -1,9 +1,8 @@
 const express = require('express');
-const { PrismaClient } = require('@prisma/client');
 const { requireAuth } = require('../middleware/auth');
 
 const router = express.Router();
-const prisma = new PrismaClient();
+const prisma = require('../db');
 
 router.get('/:cardId/comments', requireAuth, async (req, res) => {
   try {
@@ -34,7 +33,7 @@ router.post('/:cardId/comments', requireAuth, async (req, res) => {
     });
     if (card) {
       const io = req.app.get('io');
-      io.to(card.column.boardId).emit('comment:added', { cardId: req.params.cardId, comment });
+      io.to(`board:${card.column.boardId}`).emit('comment:added', { cardId: req.params.cardId, comment });
     }
 
     res.status(201).json({ comment });

@@ -1,9 +1,8 @@
 const express = require('express');
-const { PrismaClient } = require('@prisma/client');
 const { requireAuth, requireBoardMember } = require('../middleware/auth');
 
 const router = express.Router();
-const prisma = new PrismaClient();
+const prisma = require('../db');
 
 router.post('/:boardId/labels', requireAuth, requireBoardMember, async (req, res) => {
   try {

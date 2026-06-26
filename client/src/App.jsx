@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import { SocketProvider } from './context/SocketContext';
+import { SocketProvider, useSocket } from './context/SocketContext';
 import { ToastProvider, useToast } from './context/ToastContext';
 import AuthPage from './components/Auth/AuthPage';
 import Sidebar from './components/Layout/Sidebar';
@@ -17,6 +17,7 @@ import './index.css';
 function AppContent() {
   const { user, loading } = useAuth();
   const { addToast } = useToast();
+  const { joinBoard, leaveBoard } = useSocket();
 
   const [boards, setBoards] = useState([]);
   const [activeBoard, setActiveBoard] = useState(null);
@@ -28,10 +29,19 @@ function AppContent() {
   const [newBoardSprint, setNewBoardSprint] = useState('');
 
   const [showProfileModal, setShowProfileModal] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   useEffect(() => {
     if (user) loadBoards();
   }, [user]);
+
+  useEffect(() => {
+    if (activeBoard?.id) {
+      joinBoard(activeBoard.id);
+      return () => leaveBoard(activeBoard.id);
+    }
+  }, [activeBoard?.id, joinBoard, leaveBoard]);
 
   const loadBoards = async () => {
     try {
@@ -116,7 +126,7 @@ function AppContent() {
     return <AuthPage />;
   }
 
-  const pendingInsightCount = 0; // TODO: track via socket
+  const pendingInsightCount = activeBoard?.insights?.filter(i => !i.isImplemented)?.length || 0;
 
   const renderMainContent = () => {
     if (showNewBoard) {
@@ -174,7 +184,7 @@ function AppContent() {
 
     switch (activeView) {
       case 'board':
-        return <BoardView board={activeBoard} setBoard={setActiveBoard} />;
+        return <BoardView board={activeBoard} setBoard={setActiveBoard} searchQuery={searchQuery} />;
       case 'team':
         return (
           <>
@@ -204,12 +214,12 @@ function AppContent() {
           </>
         );
       default:
-        return <BoardView board={activeBoard} setBoard={setActiveBoard} />;
+        return <BoardView board={activeBoard} setBoard={setActiveBoard} searchQuery={searchQuery} />;
     }
   };
 
   return (
-    <div className="app-layout mesh-bg">
+    <div className={`app-layout mesh-bg ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
       <Sidebar
         activeView={activeView}
         onViewChange={handleViewChange}
@@ -219,8 +229,10 @@ function AppContent() {
         pendingInsights={pendingInsightCount}
         onOpenProfile={() => setShowProfileModal(true)}
         onDeleteBoard={handleDeleteBoard}
+        collapsed={sidebarCollapsed}
+        onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
       />
-      <TopBar activeView={activeView} onViewChange={handleViewChange} />
+      <TopBar activeView={activeView} onViewChange={handleViewChange} onSearch={setSearchQuery} />
       <main className="main-content dot-pattern">
         {renderMainContent()}
       </main>

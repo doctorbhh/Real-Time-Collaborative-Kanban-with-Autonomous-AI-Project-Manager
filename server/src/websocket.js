@@ -1,7 +1,6 @@
 const { Server } = require('socket.io');
-const { PrismaClient } = require('@prisma/client');
 
-const prisma = new PrismaClient();
+const prisma = require('./db');
 
 function setupWebSocket(server) {
   const io = new Server(server, {
@@ -12,196 +11,97 @@ function setupWebSocket(server) {
     transports: ['websocket', 'polling'],
   });
 
-  const boardUsers = new Map(); // boardId -> Map<socketId, { userId, userName }>
+  io.use(async (socket, next) => {
+    const token = socket.handshake.auth?.token;
+    if (!token) {
+      return next(new Error('Authentication error: Token missing'));
+    }
+    try {
+      const user = await prisma.user.findUnique({ where: { apiKey: token } });
+      if (!user) {
+        return next(new Error('Authentication error: Invalid token'));
+      }
+      socket.userId = user.id;
+      next();
+    } catch (err) {
+      next(new Error('Authentication error: Database error'));
+    }
+  });
+
+  const boardPresence = new Map();
 
   io.on('connection', (socket) => {
-    console.log(`Client connected: ${socket.id}`);
+    console.log(`Client connected: ${socket.id} (User: ${socket.userId})`);
 
-    socket.on('board:join', ({ boardId, userId, userName }) => {
-      socket.join(boardId);
-      socket.boardId = boardId;
-      socket.userId = userId;
-      socket.userName = userName;
+    socket.on('board:join', async ({ boardId, userName, avatar }) => {
+      try {
+        const isMember = await prisma.boardMember.findFirst({
+          where: { userId: socket.userId, boardId }
+        });
+        
+        if (!isMember) {
+          return socket.emit('error', { message: 'Not authorized for this board' });
+        }
 
-      if (!boardUsers.has(boardId)) {
-        boardUsers.set(boardId, new Map());
+        const room = `board:${boardId}`;
+        socket.join(room);
+
+        if (!socket.boards) socket.boards = new Set();
+        socket.boards.add(boardId);
+        socket.userName = userName;
+
+        if (!boardPresence.has(boardId)) {
+          boardPresence.set(boardId, new Map());
+        }
+        
+        const presenceMap = boardPresence.get(boardId);
+        if (!presenceMap.has(socket.userId)) {
+          presenceMap.set(socket.userId, {
+            name: userName,
+            avatar: avatar || null,
+            socketIds: new Set([socket.id])
+          });
+        } else {
+          const userPresence = presenceMap.get(socket.userId);
+          userPresence.socketIds.add(socket.id);
+          userPresence.name = userName;
+          userPresence.avatar = avatar || null;
+        }
+
+        const users = Array.from(presenceMap.entries()).map(([userId, data]) => ({
+          userId,
+          name: data.name,
+          avatar: data.avatar
+        }));
+
+        io.to(room).emit('board:presence', users);
+        console.log(`${userName} joined board ${boardId}`);
+      } catch (err) {
+        console.error('Error in board:join:', err);
       }
-      boardUsers.get(boardId).set(socket.id, { userId, userName });
-
-      io.to(boardId).emit('user:presence', {
-        users: Array.from(boardUsers.get(boardId).values()),
-        event: 'joined',
-        user: { userId, userName },
-      });
-
-      console.log(`${userName} joined board ${boardId}`);
     });
 
     socket.on('board:leave', ({ boardId }) => {
-      socket.leave(boardId);
-      if (boardUsers.has(boardId)) {
-        boardUsers.get(boardId).delete(socket.id);
-        io.to(boardId).emit('user:presence', {
-          users: Array.from(boardUsers.get(boardId).values()),
-          event: 'left',
-          user: { userId: socket.userId, userName: socket.userName },
-        });
-      }
+      handleLeave(socket, boardId);
     });
 
-    socket.on('card:created', async ({ card, boardId }) => {
-      socket.to(boardId).emit('card:created', { card });
-    });
-
-    socket.on('card:moved', async ({ cardId, fromColumnId, toColumnId, newPosition, boardId }) => {
-      try {
-        const card = await prisma.card.findUnique({ where: { id: cardId } });
-        if (!card) return;
-
-        await prisma.$transaction(async (tx) => {
-          if (fromColumnId !== toColumnId) {
-            await tx.card.updateMany({
-              where: {
-                columnId: fromColumnId,
-                position: { gt: card.position },
-              },
-              data: { position: { decrement: 1 } },
-            });
-
-            await tx.card.updateMany({
-              where: {
-                columnId: toColumnId,
-                position: { gte: newPosition },
-              },
-              data: { position: { increment: 1 } },
-            });
-          } else {
-            if (newPosition > card.position) {
-              await tx.card.updateMany({
-                where: {
-                  columnId: toColumnId,
-                  position: { gt: card.position, lte: newPosition },
-                },
-                data: { position: { decrement: 1 } },
-              });
-            } else if (newPosition < card.position) {
-              await tx.card.updateMany({
-                where: {
-                  columnId: toColumnId,
-                  position: { gte: newPosition, lt: card.position },
-                },
-                data: { position: { increment: 1 } },
-              });
-            }
-          }
-
-          await tx.card.update({
-            where: { id: cardId },
-            data: {
-              columnId: toColumnId,
-              position: newPosition,
-              version: { increment: 1 },
-            },
-          });
-
-          await tx.activity.create({
-            data: {
-              action: 'moved',
-              details: { fromColumnId, toColumnId },
-              cardId,
-              userId: socket.userId || null,
-            },
-          });
-        });
-
-        socket.to(boardId).emit('card:moved', {
-          cardId,
-          fromColumnId,
-          toColumnId,
-          newPosition,
-          movedBy: socket.userName,
-        });
-      } catch (err) {
-        console.error('Error moving card:', err);
-        socket.emit('error', { message: 'Failed to move card' });
-      }
-    });
-
-    socket.on('card:updated', async ({ cardId, changes, version, boardId }) => {
-      try {
-        const card = await prisma.card.findUnique({ where: { id: cardId } });
-        if (!card) return;
-
-        if (card.version !== version) {
-          socket.emit('conflict:detected', {
-            cardId,
-            serverVersion: card.version,
-            yourVersion: version,
-            serverData: card,
-            yourChanges: changes,
-          });
-          return;
-        }
-
-        const updated = await prisma.card.update({
-          where: { id: cardId },
-          data: {
-            ...changes,
-            version: { increment: 1 },
-          },
-          include: {
-            labels: { include: { label: true } },
-            assignee: true,
-          },
-        });
-
-        await prisma.activity.create({
-          data: {
-            action: 'edited',
-            details: { changes: Object.keys(changes) },
-            cardId,
-            userId: socket.userId || null,
-          },
-        });
-
-        socket.to(boardId).emit('card:updated', { card: updated });
-      } catch (err) {
-        console.error('Error updating card:', err);
-        socket.emit('error', { message: 'Failed to update card' });
-      }
-    });
-
-    socket.on('card:deleted', async ({ cardId, boardId }) => {
-      socket.to(boardId).emit('card:deleted', { cardId });
-    });
-
-    socket.on('column:created', ({ column, boardId }) => {
-      socket.to(boardId).emit('column:created', { column });
-    });
-
-    socket.on('column:updated', ({ columnId, changes, boardId }) => {
-      socket.to(boardId).emit('column:updated', { columnId, changes });
-    });
-
-    socket.on('column:deleted', ({ columnId, boardId }) => {
-      socket.to(boardId).emit('column:deleted', { columnId });
-    });
-
-    socket.on('column:reordered', ({ columns, boardId }) => {
-      socket.to(boardId).emit('column:reordered', { columns });
-    });
-
-    socket.on('user:typing', ({ cardId, field, boardId }) => {
-      socket.to(boardId).emit('user:typing', {
+    socket.on('card:typing', ({ boardId, cardId }) => {
+      socket.to(`board:${boardId}`).emit('card:typing', {
         cardId,
-        field,
         userId: socket.userId,
-        userName: socket.userName,
+        userName: socket.userName
+      });
+    });
+
+    socket.on('card:typing:stop', ({ boardId, cardId }) => {
+      socket.to(`board:${boardId}`).emit('card:typing:stop', {
+        cardId,
+        userId: socket.userId
       });
     });
 
     socket.on('cursor:move', ({ x, y, boardId }) => {
-      socket.volatile.to(boardId).emit('cursor:move', {
+      socket.volatile.to(`board:${boardId}`).emit('cursor:move', {
         userId: socket.userId,
         userName: socket.userName,
         x,
@@ -211,16 +111,41 @@ function setupWebSocket(server) {
 
     socket.on('disconnect', () => {
       console.log(`Client disconnected: ${socket.id}`);
-      if (socket.boardId && boardUsers.has(socket.boardId)) {
-        boardUsers.get(socket.boardId).delete(socket.id);
-        io.to(socket.boardId).emit('user:presence', {
-          users: Array.from(boardUsers.get(socket.boardId).values()),
-          event: 'left',
-          user: { userId: socket.userId, userName: socket.userName },
-        });
+      if (socket.boards) {
+        for (const boardId of socket.boards) {
+          handleLeave(socket, boardId);
+        }
       }
     });
   });
+
+  function handleLeave(socket, boardId) {
+    socket.leave(`board:${boardId}`);
+    if (socket.boards) socket.boards.delete(boardId);
+
+    if (boardPresence.has(boardId)) {
+      const presenceMap = boardPresence.get(boardId);
+      if (presenceMap.has(socket.userId)) {
+        const userPresence = presenceMap.get(socket.userId);
+        userPresence.socketIds.delete(socket.id);
+        
+        if (userPresence.socketIds.size === 0) {
+          presenceMap.delete(socket.userId);
+          
+          const users = Array.from(presenceMap.entries()).map(([userId, data]) => ({
+            userId,
+            name: data.name,
+            avatar: data.avatar
+          }));
+          
+          io.to(`board:${boardId}`).emit('board:presence', users);
+        }
+      }
+      if (presenceMap.size === 0) {
+        boardPresence.delete(boardId);
+      }
+    }
+  }
 
   return io;
 }

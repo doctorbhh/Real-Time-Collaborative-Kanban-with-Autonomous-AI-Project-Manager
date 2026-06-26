@@ -1,7 +1,7 @@
-const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
+const prisma = require('../db');
+const llm = require('./llmClient');
 
-async function detectBottlenecks(boardId) {
+async function detectBottlenecks(boardId, io) {
   const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
   const columns = await prisma.column.findMany({
@@ -18,7 +18,7 @@ async function detectBottlenecks(boardId) {
         },
       },
     },
-    orderBy: { position: 'asc' },
+    orderBy: { order: 'asc' },
   });
 
   const recentMoves = await prisma.activity.findMany({
@@ -107,7 +107,32 @@ async function detectBottlenecks(boardId) {
     }
   }
 
-  return bottlenecks;
+  let aiAnalysis = null;
+  if (io && bottlenecks.length > 0) {
+    const prompt = `You are an agile project manager analyzing a Kanban board. 
+The system has identified the following potential bottlenecks based on flow metrics:
+${JSON.stringify(bottlenecks, null, 2)}
+
+Provide a structured analysis. Format your response exactly as a JSON object with this shape:
+{
+  "summary": "A brief 2-3 sentence summary of the main bottleneck and its actionable solution.",
+  "recommendedActions": ["Action 1", "Action 2"]
+}
+Respond ONLY with the JSON object, no markdown formatting like \`\`\`json.`;
+
+    let aiResponse = '';
+    try {
+      for await (const chunk of llm.stream(prompt, { temperature: 0.2 })) {
+        aiResponse += chunk;
+        io.to(`board:${boardId}`).emit('ai:stream', { type: 'bottleneck', chunk });
+      }
+      aiAnalysis = JSON.parse(aiResponse.replace(/```json\n?|\n?```/g, '').trim());
+    } catch (e) {
+      console.error('LLM bottleneck analysis failed:', e);
+    }
+  }
+
+  return { bottlenecks, aiAnalysis };
 }
 
 module.exports = { detectBottlenecks };

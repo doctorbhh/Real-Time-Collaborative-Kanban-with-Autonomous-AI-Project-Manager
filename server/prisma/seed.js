@@ -48,14 +48,14 @@ async function main() {
     data: {
       name: 'Sprint 12 — Launch Features',
       description: 'Main development board for Sprint 12',
-      sprintEndDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000), // 2 weeks from now
+      sprintEndDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000), 
       columns: {
         create: [
-          { name: 'Backlog', position: 0 },
-          { name: 'To Do', position: 1 },
-          { name: 'In Progress', position: 2 },
-          { name: 'Review', position: 3 },
-          { name: 'Done', position: 4 },
+          { name: 'Backlog', order: 0 },
+          { name: 'To Do', order: 1 },
+          { name: 'In Progress', order: 2 },
+          { name: 'Review', order: 3 },
+          { name: 'Done', order: 4 },
         ],
       },
       members: {
@@ -78,7 +78,7 @@ async function main() {
       },
     },
     include: {
-      columns: { orderBy: { position: 'asc' } },
+      columns: { orderBy: { order: 'asc' } },
       labels: true,
     },
   });
@@ -111,7 +111,7 @@ async function main() {
       data: {
         title: c.title,
         description: c.desc,
-        position: i % 5,
+        order: i % 5,
         complexity: c.complexity || null,
         columnId: c.col.id,
         assigneeId: c.assignee?.id || null,

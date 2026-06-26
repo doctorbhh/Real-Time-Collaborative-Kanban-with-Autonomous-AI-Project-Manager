@@ -1,9 +1,8 @@
 const express = require('express');
-const { PrismaClient } = require('@prisma/client');
 const { requireAuth, requireBoardMember } = require('../middleware/auth');
 
 const router = express.Router();
-const prisma = new PrismaClient();
+const prisma = require('../db');
 
 router.post('/:boardId/columns', requireAuth, requireBoardMember, async (req, res) => {
   try {
@@ -12,13 +11,13 @@ router.post('/:boardId/columns', requireAuth, requireBoardMember, async (req, re
 
     const maxPos = await prisma.column.aggregate({
       where: { boardId: req.params.boardId },
-      _max: { position: true },
+      _max: { order: true },
     });
 
     const column = await prisma.column.create({
       data: {
         name,
-        position: (maxPos._max.position ?? -1) + 1,
+        order: (maxPos._max.order ?? -1) + 1,
         wipLimit: wipLimit || null,
         boardId: req.params.boardId,
       },
@@ -26,7 +25,7 @@ router.post('/:boardId/columns', requireAuth, requireBoardMember, async (req, re
     });
 
     const io = req.app.get('io');
-    io.to(req.params.boardId).emit('column:created', { column });
+    io.to(`board:${req.params.boardId}`).emit('column:created', { column });
 
     res.status(201).json({ column });
   } catch (err) {
@@ -47,7 +46,7 @@ router.patch('/:boardId/columns/:columnId', requireAuth, requireBoardMember, asy
     });
 
     const io = req.app.get('io');
-    io.to(req.params.boardId).emit('column:updated', { columnId: column.id, changes: { name, wipLimit } });
+    io.to(`board:${req.params.boardId}`).emit('column:updated', { columnId: column.id, changes: { name, wipLimit } });
 
     res.json({ column });
   } catch (err) {
@@ -57,15 +56,15 @@ router.patch('/:boardId/columns/:columnId', requireAuth, requireBoardMember, asy
 
 router.patch('/:boardId/columns-reorder', requireAuth, requireBoardMember, async (req, res) => {
   try {
-    const { columns } = req.body; // [{ id, position }]
+    const { columns } = req.body; 
     await prisma.$transaction(
-      columns.map(({ id, position }) =>
-        prisma.column.update({ where: { id }, data: { position } })
+      columns.map(({ id, order }) =>
+        prisma.column.update({ where: { id }, data: { order } })
       )
     );
 
     const io = req.app.get('io');
-    io.to(req.params.boardId).emit('column:reordered', { columns });
+    io.to(`board:${req.params.boardId}`).emit('column:reordered', { columns });
 
     res.json({ ok: true });
   } catch (err) {
@@ -78,7 +77,7 @@ router.delete('/:boardId/columns/:columnId', requireAuth, requireBoardMember, as
     await prisma.column.delete({ where: { id: req.params.columnId } });
 
     const io = req.app.get('io');
-    io.to(req.params.boardId).emit('column:deleted', { columnId: req.params.columnId });
+    io.to(`board:${req.params.boardId}`).emit('column:deleted', { columnId: req.params.columnId });
 
     res.json({ ok: true });
   } catch (err) {

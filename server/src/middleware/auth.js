@@ -1,7 +1,20 @@
-const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
+const prisma = require('../db');
 
-function requireAuth(req, res, next) {
+async function requireAuth(req, res, next) {
+  const apiKey = req.headers.authorization?.replace('Bearer ', '');
+  if (apiKey) {
+    try {
+      const user = await prisma.user.findUnique({ where: { apiKey } });
+      if (user) {
+        req.userId = user.id;
+        req.user = user;
+        return next();
+      }
+    } catch (err) {
+      console.error('API Key auth error:', err);
+    }
+  }
+
   if (!req.session || !req.session.userId) {
     return res.status(401).json({ error: 'Not authenticated' });
   }

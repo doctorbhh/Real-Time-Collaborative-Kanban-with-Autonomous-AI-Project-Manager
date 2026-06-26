@@ -60,6 +60,7 @@ export const api = {
 
   previewImport: (boardId, body) => request(`/api/boards/${boardId}/github-import/preview`, { method: 'POST', body }),
   importIssues: (boardId, body) => request(`/api/boards/${boardId}/github-import`, { method: 'POST', body }),
+  getImportHistory: (boardId) => request(`/api/boards/${boardId}/github-import/history`),
 
   getInsights: (boardId) => request(`/api/boards/${boardId}/ai/insights`),
   updateInsight: (boardId, insightId, body) => request(`/api/boards/${boardId}/ai/insights/${insightId}`, { method: 'PATCH', body }),

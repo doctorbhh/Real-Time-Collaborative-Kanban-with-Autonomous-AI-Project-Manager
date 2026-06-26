@@ -1,9 +1,8 @@
 const express = require('express');
-const { PrismaClient } = require('@prisma/client');
 const { requireAuth, requireBoardMember } = require('../middleware/auth');
 
 const router = express.Router();
-const prisma = new PrismaClient();
+const prisma = require('../db');
 
 router.post('/', requireAuth, async (req, res) => {
   try {
@@ -17,11 +16,11 @@ router.post('/', requireAuth, async (req, res) => {
         sprintEndDate: sprintEndDate ? new Date(sprintEndDate) : null,
         columns: {
           create: [
-            { name: 'Backlog', position: 0 },
-            { name: 'To Do', position: 1 },
-            { name: 'In Progress', position: 2 },
-            { name: 'Review', position: 3 },
-            { name: 'Done', position: 4 },
+            { name: 'Backlog', order: 0 },
+            { name: 'To Do', order: 1 },
+            { name: 'In Progress', order: 2 },
+            { name: 'Review', order: 3 },
+            { name: 'Done', order: 4 },
           ],
         },
         members: {
@@ -38,7 +37,7 @@ router.post('/', requireAuth, async (req, res) => {
         },
       },
       include: {
-        columns: { orderBy: { position: 'asc' } },
+        columns: { orderBy: { order: 'asc' } },
         members: { include: { user: { select: { id: true, name: true, email: true, avatarUrl: true } } } },
         labels: true,
       },
@@ -57,7 +56,7 @@ router.get('/', requireAuth, async (req, res) => {
       where: { members: { some: { userId: req.userId } } },
       include: {
         columns: {
-          orderBy: { position: 'asc' },
+          orderBy: { order: 'asc' },
           include: { _count: { select: { cards: true } } },
         },
         members: { include: { user: { select: { id: true, name: true, avatarUrl: true } } } },
@@ -78,10 +77,10 @@ router.get('/:boardId/full', requireAuth, requireBoardMember, async (req, res) =
       where: { id: req.params.boardId },
       include: {
         columns: {
-          orderBy: { position: 'asc' },
+          orderBy: { order: 'asc' },
           include: {
             cards: {
-              orderBy: { position: 'asc' },
+              orderBy: { order: 'asc' },
               include: {
                 labels: { include: { label: true } },
                 assignee: { select: { id: true, name: true, avatarUrl: true } },

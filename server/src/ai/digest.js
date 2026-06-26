@@ -1,5 +1,4 @@
-const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
+const prisma = require('../db');
 
 async function generateDigest(boardId) {
   const now = new Date();
@@ -10,7 +9,7 @@ async function generateDigest(boardId) {
     where: { id: boardId },
     include: {
       columns: {
-        orderBy: { position: 'asc' },
+        orderBy: { order: 'asc' },
         include: { _count: { select: { cards: true } } },
       },
     },

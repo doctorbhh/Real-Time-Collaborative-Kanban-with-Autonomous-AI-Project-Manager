@@ -112,7 +112,7 @@ export default function ProfileModal({ onClose }) {
                 Show
               </button>
               <button className="btn btn-ghost btn-sm" onClick={handleCopyApiKey}>
-                {copied ? <CircleCheckBigIcon size="18" /> : <CopyIcon size="18" />} {copied ? 'Copied' : 'CopyIcon'}
+                {copied ? <CircleCheckBigIcon size="18" /> : <CopyIcon size="18" />} {copied ? 'Copied' : 'Copy'}
               </button>
             </div>
           </div>

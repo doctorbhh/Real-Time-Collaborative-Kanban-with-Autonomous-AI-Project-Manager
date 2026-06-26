@@ -18,11 +18,23 @@ export function SocketProvider({ children }) {
     const socket = io(SOCKET_URL, {
       transports: ['websocket', 'polling'],
       withCredentials: true,
+      auth: { token: user.apiKey },
+      reconnection: true,
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000,
     });
 
     socket.on('connect', () => {
       console.log('WebSocket connected');
       setConnected(true);
+      
+      if (socket.boardIdToRejoin) {
+        socket.emit('board:join', {
+          boardId: socket.boardIdToRejoin,
+          userName: user.name,
+          avatar: user.avatarUrl
+        });
+      }
     });
 
     socket.on('disconnect', () => {
@@ -30,7 +42,7 @@ export function SocketProvider({ children }) {
       setConnected(false);
     });
 
-    socket.on('user:presence', ({ users }) => {
+    socket.on('board:presence', (users) => {
       setOnlineUsers(users);
     });
 
@@ -44,16 +56,18 @@ export function SocketProvider({ children }) {
 
   const joinBoard = useCallback((boardId) => {
     if (socketRef.current && user) {
+      socketRef.current.boardIdToRejoin = boardId;
       socketRef.current.emit('board:join', {
         boardId,
-        userId: user.id,
         userName: user.name,
+        avatar: user.avatarUrl
       });
     }
   }, [user]);
 
   const leaveBoard = useCallback((boardId) => {
     if (socketRef.current) {
+      socketRef.current.boardIdToRejoin = null;
       socketRef.current.emit('board:leave', { boardId });
     }
   }, []);

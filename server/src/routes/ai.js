@@ -1,10 +1,9 @@
 const express = require('express');
-const { PrismaClient } = require('@prisma/client');
 const { requireAuth, requireBoardMember } = require('../middleware/auth');
 const { runPipeline } = require('../ai/pipeline');
 
 const router = express.Router();
-const prisma = new PrismaClient();
+const prisma = require('../db');
 
 router.get('/:boardId/ai/insights', requireAuth, requireBoardMember, async (req, res) => {
   try {
@@ -21,7 +20,7 @@ router.get('/:boardId/ai/insights', requireAuth, requireBoardMember, async (req,
 
 router.patch('/:boardId/ai/insights/:insightId', requireAuth, requireBoardMember, async (req, res) => {
   try {
-    const { status } = req.body; // 'accepted' or 'dismissed'
+    const { status } = req.body; 
     if (!['accepted', 'dismissed'].includes(status)) {
       return res.status(400).json({ error: 'Status must be accepted or dismissed' });
     }
@@ -34,19 +33,25 @@ router.patch('/:boardId/ai/insights/:insightId', requireAuth, requireBoardMember
     if (status === 'accepted' && insight.type === 'complexity' && insight.data.cardId) {
       await prisma.card.update({
         where: { id: insight.data.cardId },
-        data: { complexity: insight.data.suggestedComplexity },
+        data: { complexity: insight.data.suggestedComplexity, complexityInferred: true },
       });
     }
 
     if (status === 'accepted' && insight.type === 'auto_assign' && insight.data.cardId) {
-      await prisma.card.update({
+      const updatedCard = await prisma.card.update({
         where: { id: insight.data.cardId },
         data: { assigneeId: insight.data.suggestedAssigneeId },
+        include: {
+          labels: { include: { label: true } },
+          assignee: true,
+        },
       });
+      const io = req.app.get('io');
+      io.to(`board:${req.params.boardId}`).emit('card:updated', { card: updatedCard });
     }
 
     const io = req.app.get('io');
-    io.to(req.params.boardId).emit('ai:insight-updated', { insight });
+    io.to(`board:${req.params.boardId}`).emit('ai:insight-updated', { insight });
 
     res.json({ insight });
   } catch (err) {

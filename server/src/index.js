@@ -14,12 +14,14 @@ server.listen(PORT, async () => {
   console.log(`Kanban AI Server running on port ${PORT}`);
   console.log(`   Environment: ${process.env.NODE_ENV || 'development'}`);
 
-  try {
-    const { startScheduler } = require('./ai/scheduler');
-    await startScheduler(io);
-  } catch (err) {
-    console.error('Failed to start AI scheduler:', err.message);
-  }
+  setTimeout(async () => {
+    try {
+      const { startScheduler } = require('./ai/scheduler');
+      await startScheduler(io);
+    } catch (err) {
+      console.error('Failed to start AI scheduler:', err.message);
+    }
+  }, 30000);
 });
 
 process.on('SIGTERM', () => {

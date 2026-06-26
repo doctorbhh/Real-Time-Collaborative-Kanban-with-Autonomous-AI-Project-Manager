@@ -1,9 +1,8 @@
 const express = require('express');
-const { PrismaClient } = require('@prisma/client');
 const { requireApiKey } = require('../middleware/auth');
 
 const router = express.Router();
-const prisma = new PrismaClient();
+const prisma = require('../db');
 
 router.post('/clip', requireApiKey, async (req, res) => {
   try {
@@ -21,7 +20,7 @@ router.post('/clip', requireApiKey, async (req, res) => {
 
     const maxPos = await prisma.card.aggregate({
       where: { columnId },
-      _max: { position: true },
+      _max: { order: true },
     });
 
     const card = await prisma.card.create({
@@ -29,7 +28,7 @@ router.post('/clip', requireApiKey, async (req, res) => {
         title,
         description: description || null,
         referenceUrl: referenceUrl || null,
-        position: (maxPos._max.position ?? -1) + 1,
+        order: (maxPos._max.order ?? -1) + 1,
         columnId,
       },
       include: {
@@ -44,7 +43,7 @@ router.post('/clip', requireApiKey, async (req, res) => {
     });
 
     const io = req.app.get('io');
-    io.to(boardId).emit('card:created', { card });
+    io.to(`board:${boardId}`).emit('card:created', { card });
 
     res.status(201).json({ card });
   } catch (err) {
@@ -58,7 +57,7 @@ router.get('/boards', requireApiKey, async (req, res) => {
     const boards = await prisma.board.findMany({
       where: { members: { some: { userId: req.userId } } },
       include: {
-        columns: { orderBy: { position: 'asc' }, select: { id: true, name: true } },
+        columns: { orderBy: { order: 'asc' }, select: { id: true, name: true } },
       },
     });
     res.json({ boards });
