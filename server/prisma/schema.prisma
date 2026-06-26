@@ -1,0 +1,164 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String   @id @default(uuid())
+  name          String
+  email         String   @unique
+  passwordHash  String
+  avatarUrl     String?
+  githubUsername String?
+  apiKey        String?  @unique
+  createdAt     DateTime @default(now())
+
+  boardMembers  BoardMember[]
+  assignedCards Card[]        @relation("assignee")
+  comments      Comment[]
+  activities    Activity[]
+}
+
+model Board {
+  id            String    @id @default(uuid())
+  name          String
+  description   String?
+  sprintEndDate DateTime?
+  aiSchedule    String    @default("0 */6 * * *")
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  columns       Column[]
+  members       BoardMember[]
+  labels        Label[]
+  aiInsights    AiInsight[]
+  digestReports DigestReport[]
+  githubImports GithubImport[]
+}
+
+model BoardMember {
+  id      String @id @default(uuid())
+  role    String @default("member")
+
+  userId  String
+  user    User   @relation(fields: [userId], references: [id])
+  boardId String
+  board   Board  @relation(fields: [boardId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, boardId])
+}
+
+model Column {
+  id       String @id @default(uuid())
+  name     String
+  position Int
+  wipLimit Int?
+
+  boardId  String
+  board    Board  @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  cards    Card[]
+}
+
+model Card {
+  id                  String   @id @default(uuid())
+  title               String
+  description         String?
+  position            Int
+  complexity          Int?
+  complexitySuggested Int?
+  referenceUrl        String?
+  githubIssueId       Int?
+  githubRepoUrl       String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  version             Int      @default(0)
+
+  columnId    String
+  column      Column   @relation(fields: [columnId], references: [id], onDelete: Cascade)
+  assigneeId  String?
+  assignee    User?    @relation("assignee", fields: [assigneeId], references: [id])
+
+  labels      CardLabel[]
+  comments    Comment[]
+  activities  Activity[]
+}
+
+model Label {
+  id      String @id @default(uuid())
+  name    String
+  color   String
+
+  boardId String
+  board   Board  @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  cards   CardLabel[]
+}
+
+model CardLabel {
+  cardId  String
+  card    Card   @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  labelId String
+  label   Label  @relation(fields: [labelId], references: [id], onDelete: Cascade)
+
+  @@id([cardId, labelId])
+}
+
+model Comment {
+  id        String   @id @default(uuid())
+  text      String
+  createdAt DateTime @default(now())
+
+  cardId String
+  card   Card   @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+}
+
+model Activity {
+  id        String   @id @default(uuid())
+  action    String
+  details   Json?
+  createdAt DateTime @default(now())
+
+  cardId  String
+  card    Card   @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  userId  String?
+  user    User?  @relation(fields: [userId], references: [id])
+}
+
+model AiInsight {
+  id        String   @id @default(uuid())
+  type      String
+  data      Json
+  status    String   @default("pending")
+  createdAt DateTime @default(now())
+
+  boardId String
+  board   Board  @relation(fields: [boardId], references: [id], onDelete: Cascade)
+}
+
+model DigestReport {
+  id        String   @id @default(uuid())
+  data      Json
+  weekStart DateTime
+  weekEnd   DateTime
+  createdAt DateTime @default(now())
+
+  boardId String
+  board   Board  @relation(fields: [boardId], references: [id], onDelete: Cascade)
+}
+
+model GithubImport {
+  id         String   @id @default(uuid())
+  repoUrl    String
+  lastSyncAt DateTime @default(now())
+  issueCount Int      @default(0)
+
+  boardId String
+  board   Board  @relation(fields: [boardId], references: [id], onDelete: Cascade)
+
+  @@unique([repoUrl, boardId])
+}
