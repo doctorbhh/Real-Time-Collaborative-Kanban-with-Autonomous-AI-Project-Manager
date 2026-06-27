@@ -86,6 +86,19 @@ export default function InsightsPanel({ boardId }) {
     }
   };
 
+  const handleRunAutoAssign = async () => {
+    setRunning(true);
+    setStreamingText(prev => ({ ...prev, auto_assign: '' }));
+    setCurrentPhase('starting');
+    try {
+      await api.runAutoAssign(boardId);
+    } catch (err) {
+      console.error('Failed to run Auto-Assign:', err);
+      setRunning(false);
+      setCurrentPhase(null);
+    }
+  };
+
   const handleAction = async (insightId, status) => {
     try {
       await api.updateInsight(boardId, insightId, { status });
@@ -131,18 +144,31 @@ export default function InsightsPanel({ boardId }) {
           <div className="ai-header-title">AI Insights</div>
           <div className="ai-header-subtitle">Real-time sprint analysis</div>
         </div>
-        <button
-          className="btn btn-primary btn-sm"
-          onClick={handleRun}
-          disabled={running}
-          style={{ display: 'flex', alignItems: 'center', gap: 4 }}
-        >
-          {running ? (
-            <><div className="loading-spinner" style={{ width: 14, height: 14, borderWidth: 2 }} /> Running...</>
-          ) : (
-            <><span className="material-symbols-outlined" style={{ fontSize: 16 }}>play_arrow</span> Analyze</>
-          )}
-        </button>
+        <div style={{ display: 'flex', gap: 'var(--space-xs)' }}>
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={handleRunAutoAssign}
+            disabled={running}
+            style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 8px' }}
+            title="Run Auto-Assign Only"
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>smart_toy</span> 
+            {!running && 'Auto-Assign'}
+          </button>
+          <button
+            className="btn btn-primary btn-sm"
+            onClick={handleRun}
+            disabled={running}
+            style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 8px' }}
+            title="Run Full Pipeline"
+          >
+            {running ? (
+              <><div className="loading-spinner" style={{ width: 14, height: 14, borderWidth: 2 }} /> Running...</>
+            ) : (
+              <><span className="material-symbols-outlined" style={{ fontSize: 16 }}>play_arrow</span> Analyze All</>
+            )}
+          </button>
+        </div>
       </div>
 
       {loading ? (

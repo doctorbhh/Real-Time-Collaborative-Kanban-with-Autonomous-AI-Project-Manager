@@ -13,15 +13,6 @@ export default function ProfileModal({ onClose }) {
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  const handleCopyApiKey = () => {
-    if (user?.apiKey) {
-      navigator.clipboard.writeText(user.apiKey);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-      addToast('API Key copied to clipboard!', 'success');
-    }
-  };
-
   const handleSave = async () => {
     setSaving(true);
     try {
@@ -80,41 +71,6 @@ export default function ProfileModal({ onClose }) {
               onChange={e => setGithubUsername(e.target.value)}
               placeholder="octocat"
             />
-          </div>
-
-          <div className="input-group">
-            <label className="input-label">Extension API Key</label>
-            <p style={{ fontSize: 12, color: 'var(--outline)', marginBottom: 4 }}>
-              Use this key to connect the Chrome Extension to your account.
-            </p>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <input
-                className="input"
-                value={user?.apiKey || ''}
-                readOnly
-                type="password"
-                style={{ flex: 1, fontFamily: 'var(--font-mono)', fontSize: 12, background: 'var(--surface-container-low)' }}
-                id="api-key-input"
-              />
-              <button 
-                className="btn btn-secondary" 
-                onClick={(e) => {
-                  const input = document.getElementById('api-key-input');
-                  if (input.type === 'password') {
-                    input.type = 'text';
-                    e.target.innerText = 'Hide';
-                  } else {
-                    input.type = 'password';
-                    e.target.innerText = 'Show';
-                  }
-                }}
-              >
-                Show
-              </button>
-              <button className="btn btn-ghost btn-sm" onClick={handleCopyApiKey}>
-                {copied ? <CircleCheckBigIcon size="18" /> : <CopyIcon size="18" />} {copied ? 'Copied' : 'Copy'}
-              </button>
-            </div>
           </div>
 
         </div>

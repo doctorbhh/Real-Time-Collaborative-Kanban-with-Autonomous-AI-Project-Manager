@@ -40,21 +40,42 @@ class LLMClient {
   async completeGemini(prompt, maxTokens, temperature) {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${this.geminiKey}`;
 
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-          maxOutputTokens: maxTokens,
-          temperature,
-        },
-      }),
-    });
+    let response;
+    let attempt = 0;
+    const maxRetries = 3;
 
-    if (!response.ok) {
-      const errText = await response.text();
-      throw new Error(`Gemini API error: ${response.status} - ${errText}`);
+    while (attempt < maxRetries) {
+      response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: {
+            maxOutputTokens: maxTokens,
+            temperature,
+          },
+        }),
+      });
+
+      if (response.status === 429 && attempt < maxRetries - 1) {
+        attempt++;
+        const errText = await response.text();
+        let delayMs = 15000 * Math.pow(2, attempt - 1);
+        const match = errText.match(/retry in ([\d\.]+)s/);
+        if (match && match[1]) {
+          delayMs = Math.ceil(parseFloat(match[1]) * 1000) + 2000;
+        }
+        delayMs += Math.random() * 2000; // Jitter
+        console.warn(`[Complete] LLM Rate limit hit. Retrying in ${(delayMs/1000).toFixed(1)}s (Attempt ${attempt}/${maxRetries - 1})...`);
+        await new Promise(res => setTimeout(res, delayMs));
+        continue;
+      }
+
+      if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(`Gemini API error: ${response.status} - ${errText}`);
+      }
+      break;
     }
 
     const data = await response.json();
@@ -64,21 +85,42 @@ class LLMClient {
   async *streamGemini(prompt, maxTokens, temperature) {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:streamGenerateContent?alt=sse&key=${this.geminiKey}`;
 
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-          maxOutputTokens: maxTokens,
-          temperature,
-        },
-      }),
-    });
+    let response;
+    let attempt = 0;
+    const maxRetries = 3;
 
-    if (!response.ok) {
-      const errText = await response.text();
-      throw new Error(`Gemini API error: ${response.status} - ${errText}`);
+    while (attempt < maxRetries) {
+      response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: {
+            maxOutputTokens: maxTokens,
+            temperature,
+          },
+        }),
+      });
+
+      if (response.status === 429 && attempt < maxRetries - 1) {
+        attempt++;
+        const errText = await response.text();
+        let delayMs = 15000 * Math.pow(2, attempt - 1);
+        const match = errText.match(/retry in ([\d\.]+)s/);
+        if (match && match[1]) {
+          delayMs = Math.ceil(parseFloat(match[1]) * 1000) + 2000;
+        }
+        delayMs += Math.random() * 2000; // Jitter
+        console.warn(`[Stream] LLM Rate limit hit. Retrying in ${(delayMs/1000).toFixed(1)}s (Attempt ${attempt}/${maxRetries - 1})...`);
+        await new Promise(res => setTimeout(res, delayMs));
+        continue;
+      }
+
+      if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(`Gemini API error: ${response.status} - ${errText}`);
+      }
+      break;
     }
 
     const reader = response.body.getReader();

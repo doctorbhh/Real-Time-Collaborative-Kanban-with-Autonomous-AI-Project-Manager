@@ -11,6 +11,7 @@ import DigestView from './components/AI/DigestView';
 import TeamView from './components/Team/TeamView';
 import GitHubImport from './components/GitHub/GitHubImport';
 import ProfileModal from './components/Auth/ProfileModal';
+import ConfirmModal from './components/common/ConfirmModal';
 import api from './utils/api';
 import './index.css';
 
@@ -29,6 +30,7 @@ function AppContent() {
   const [newBoardSprint, setNewBoardSprint] = useState('');
 
   const [showProfileModal, setShowProfileModal] = useState(false);
+  const [boardToDelete, setBoardToDelete] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
@@ -89,11 +91,15 @@ function AppContent() {
   };
 
   const handleDeleteBoard = async (boardId) => {
-    if (!window.confirm('Are you sure you want to delete this board? This action cannot be undone.')) return;
+    setBoardToDelete(boardId);
+  };
+
+  const executeDeleteBoard = async () => {
+    if (!boardToDelete) return;
     try {
-      await api.deleteBoard(boardId);
-      setBoards(prev => prev.filter(b => b.id !== boardId));
-      if (activeBoard?.id === boardId) {
+      await api.deleteBoard(boardToDelete);
+      setBoards(prev => prev.filter(b => b.id !== boardToDelete));
+      if (activeBoard?.id === boardToDelete) {
         setActiveBoard(null);
         setActiveView('new-board');
         setShowNewBoard(true);
@@ -101,6 +107,8 @@ function AppContent() {
       addToast('Board deleted', 'success');
     } catch (err) {
       addToast('Failed to delete board', 'error');
+    } finally {
+      setBoardToDelete(null);
     }
   };
 
@@ -238,6 +246,15 @@ function AppContent() {
       </main>
       {showProfileModal && (
         <ProfileModal onClose={() => setShowProfileModal(false)} />
+      )}
+      {boardToDelete && (
+        <ConfirmModal
+          title="Delete Board"
+          message="Are you sure you want to delete this board? This action cannot be undone."
+          confirmText="Delete Board"
+          onConfirm={executeDeleteBoard}
+          onCancel={() => setBoardToDelete(null)}
+        />
       )}
     </div>
   );

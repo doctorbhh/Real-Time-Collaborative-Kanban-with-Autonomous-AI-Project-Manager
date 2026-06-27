@@ -38,7 +38,7 @@ export const api = {
   updateBoard: (id, body) => request(`/api/boards/${id}`, { method: 'PATCH', body }),
   deleteBoard: (id) => request(`/api/boards/${id}`, { method: 'DELETE' }),
   addMember: (boardId, body) => request(`/api/boards/${boardId}/members`, { method: 'POST', body }),
-
+  removeMember: (boardId, userId) => request(`/api/boards/${boardId}/members/${userId}`, { method: 'DELETE' }),
   createColumn: (boardId, body) => request(`/api/boards/${boardId}/columns`, { method: 'POST', body }),
   updateColumn: (boardId, colId, body) => request(`/api/boards/${boardId}/columns/${colId}`, { method: 'PATCH', body }),
   deleteColumn: (boardId, colId) => request(`/api/boards/${boardId}/columns/${colId}`, { method: 'DELETE' }),

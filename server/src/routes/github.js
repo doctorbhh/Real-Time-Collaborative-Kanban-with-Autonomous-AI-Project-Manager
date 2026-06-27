@@ -24,6 +24,7 @@ function getTotalCountFromLinkHeader(link) {
   return match ? parseInt(match[1]) : 1;
 }
 
+// 1. Preview
 router.post('/:boardId/github-import/preview', requireAuth, requireBoardMember, async (req, res) => {
   try {
     const { repoUrl } = req.body;
@@ -93,6 +94,7 @@ router.post('/:boardId/github-import/preview', requireAuth, requireBoardMember, 
   }
 });
 
+// 2. Import
 router.post('/:boardId/github-import', requireAuth, requireBoardMember, async (req, res) => {
   try {
     const { repoUrl, targetColumnId } = req.body;
@@ -106,9 +108,11 @@ router.post('/:boardId/github-import', requireAuth, requireBoardMember, async (r
     if (!parsed) return res.status(400).json({ error: "That doesn't look like a GitHub repository URL" });
     const { owner, repo } = parsed;
 
+    // 1. Fetch all existing labels
     const boardLabels = await prisma.label.findMany({ where: { boardId } });
     const labelMap = new Map(boardLabels.map(l => [l.name.toLowerCase(), l.id]));
 
+    // 2. Load board members for assignee mapping
     const boardMembers = await prisma.boardMember.findMany({
       where: { boardId },
       include: { user: { select: { id: true, githubUsername: true } } }
@@ -119,6 +123,7 @@ router.post('/:boardId/github-import', requireAuth, requireBoardMember, async (r
         .map(m => [m.user.githubUsername.toLowerCase(), m.user.id])
     );
 
+    // 3. Load existing IDs
     const existing = await prisma.card.findMany({
       where: { column: { boardId }, githubIssueId: { not: null } },
       select: { githubIssueId: true }
@@ -128,6 +133,7 @@ router.post('/:boardId/github-import', requireAuth, requireBoardMember, async (r
     let allIssues = [];
     let page = 1;
 
+    // 4. Paginated fetch
     while (true) {
       let response;
       try {
@@ -151,13 +157,14 @@ router.post('/:boardId/github-import', requireAuth, requireBoardMember, async (r
 
       if (response.data.length < 100) break;
       page++;
-      await new Promise(resolve => setTimeout(resolve, 100)); 
+      await new Promise(resolve => setTimeout(resolve, 100)); // Good citizen
     }
 
     if (allIssues.length === 0) {
       return res.status(400).json({ error: "This repository has no open issues to import" });
     }
 
+    // Get starting order
     const maxPos = await prisma.card.aggregate({
       where: { columnId: targetColumnId },
       _max: { order: true },
@@ -175,7 +182,7 @@ router.post('/:boardId/github-import', requireAuth, requireBoardMember, async (r
       }
 
       try {
-        
+        // Label mapping
         const labelIds = [];
         for (const ghLabel of issue.labels) {
           const name = typeof ghLabel === 'string' ? ghLabel : ghLabel.name ?? '';
@@ -191,6 +198,7 @@ router.post('/:boardId/github-import', requireAuth, requireBoardMember, async (r
           labelIds.push(labelMap.get(key));
         }
 
+        // Assignee mapping
         const assigneeIds = (issue.assignees || [])
           .map(a => ghUserMap.get(a.login.toLowerCase()))
           .filter(id => id !== undefined);
@@ -215,6 +223,7 @@ router.post('/:boardId/github-import', requireAuth, requireBoardMember, async (r
       }
     }
 
+    // Upsert GithubImport record
     await prisma.githubImport.upsert({
       where: { repoUrl_boardId: { boardId, repoUrl } },
       create: { boardId, repoUrl, issueCount: imported },
@@ -231,6 +240,7 @@ router.post('/:boardId/github-import', requireAuth, requireBoardMember, async (r
   }
 });
 
+// 3. Import History
 router.get('/:boardId/github-import/history', requireAuth, requireBoardMember, async (req, res) => {
   try {
     const history = await prisma.githubImport.findMany({

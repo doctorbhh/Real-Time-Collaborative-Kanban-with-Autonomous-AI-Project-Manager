@@ -1,6 +1,7 @@
 const express = require('express');
 const { requireAuth, requireBoardMember } = require('../middleware/auth');
 const { runPipeline } = require('../ai/pipeline');
+const { suggestAssignments } = require('../ai/autoAssign');
 
 const router = express.Router();
 const prisma = require('../db');
@@ -69,6 +70,44 @@ router.post('/:boardId/ai/run', requireAuth, requireBoardMember, async (req, res
     });
   } catch (err) {
     res.status(500).json({ error: 'Failed to start AI analysis' });
+  }
+});
+
+router.post('/:boardId/ai/auto-assign', requireAuth, requireBoardMember, async (req, res) => {
+  try {
+    const io = req.app.get('io');
+    const boardId = req.params.boardId;
+    res.json({ ok: true, message: 'Auto-assign started' });
+
+    (async () => {
+      try {
+        if (io) io.to(`board:${boardId}`).emit('ai:analyzing', { phase: 'auto_assign' });
+        if (io) io.to(`board:${boardId}`).emit('ai:progress', { type: 'auto_assign', status: 'running', message: 'Suggesting assignees for unassigned tasks...' });
+        
+        const autoAssigns = await suggestAssignments(boardId, io);
+
+        for (const assignment of autoAssigns) {
+          const insight = await prisma.aiInsight.create({
+            data: {
+              type: 'auto_assign',
+              data: assignment,
+              boardId,
+            },
+          });
+
+          if (io) {
+            io.to(`board:${boardId}`).emit('ai:insight', { insight });
+          }
+        }
+        if (io) io.to(`board:${boardId}`).emit('ai:progress', { type: 'auto_assign', status: 'done', message: `Generated ${autoAssigns.length} assignment suggestion(s)` });
+        if (io) io.to(`board:${boardId}`).emit('ai:analyzing', { phase: 'complete' });
+      } catch (err) {
+        console.error(`AI Auto-assign error for board ${boardId}:`, err);
+        if (io) io.to(`board:${boardId}`).emit('ai:progress', { type: 'error', status: 'error', message: `Auto-assign failed: ${err.message}` });
+      }
+    })();
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to start AI auto-assign' });
   }
 });
 

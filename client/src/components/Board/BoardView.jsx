@@ -13,6 +13,7 @@ import { SortableContext, horizontalListSortingStrategy } from '@dnd-kit/sortabl
 import KanbanCard from './KanbanCard';
 import CursorOverlay from './CursorOverlay';
 import CardDetail from './CardDetail';
+import CustomSelect from './CustomSelect';
 import InsightsPanel from '../AI/InsightsPanel';
 import api from '../../utils/api';
 import { useSocket } from '../../context/SocketContext';
@@ -53,7 +54,7 @@ export default function BoardView({ board, setBoard, searchQuery = '' }) {
   }, [board?.columns]);
 
   const handlePointerDown = (e) => {
-    if (e.button !== 0 && e.button !== 1) return; // Only middle or left click
+    if (e.button !== 0 && e.button !== 1) return; 
     if (e.target.closest('.kanban-card') || e.target.closest('.board-column-header')) return;
     
     setIsPanning(true);
@@ -118,6 +119,12 @@ export default function BoardView({ board, setBoard, searchQuery = '' }) {
 
   useEffect(() => {
     if (!board?.id) return;
+
+    // Fetch the latest board data immediately on mount to ensure we have fresh data
+    // (e.g., after returning from the GitHub Import view where background updates happened)
+    api.getBoard(board.id)
+      .then(data => setBoard(data.board))
+      .catch(err => console.error('Failed to fetch initial board state:', err));
 
     const handleCardCreated = ({ card }) => {
       setBoard(prev => {
@@ -350,17 +357,16 @@ export default function BoardView({ board, setBoard, searchQuery = '' }) {
   const filteredColumns = board.columns.map(col => {
     let cards = col.cards || [];
     
-    // Apply search filter
+
     if (query) {
       cards = cards.filter(c => c.title?.toLowerCase().includes(query) || c.description?.toLowerCase().includes(query));
     }
     
-    // Apply assignee filter
+  
     if (filterAssignee) {
       cards = cards.filter(c => c.assignee?.id === filterAssignee);
     }
     
-    // Apply label filter
     if (filterLabel) {
       cards = cards.filter(c => c.labels?.some(l => l.labelId === filterLabel || l.label?.id === filterLabel));
     }
@@ -418,37 +424,33 @@ export default function BoardView({ board, setBoard, searchQuery = '' }) {
               )}
             </button>
             {showFilter && (
-              <div className="dropdown-menu" style={{ position: 'absolute', top: '100%', right: 0, marginTop: 8, zIndex: 100, background: 'var(--surface-container-lowest)', border: '1px solid var(--outline-variant)', borderRadius: 'var(--radius)', boxShadow: 'var(--shadow-lg)', padding: 'var(--space-md)', width: 250 }}>
+              <div className="dropdown-menu">
                 <h4 style={{ fontSize: 13, fontWeight: 600, color: 'var(--on-surface)', marginBottom: 12 }}>Filter Cards</h4>
                 
                 <div style={{ marginBottom: 16 }}>
                   <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--on-surface-variant)', marginBottom: 4 }}>Assignee</label>
-                  <select 
-                    className="input" 
-                    value={filterAssignee} 
-                    onChange={e => setFilterAssignee(e.target.value)}
-                    style={{ width: '100%', padding: '6px 8px', fontSize: 13 }}
-                  >
-                    <option value="">Anyone</option>
-                    {board.members?.map(m => (
-                      <option key={m.user.id} value={m.user.id}>{m.user.name}</option>
-                    ))}
-                  </select>
+                  <CustomSelect
+                    value={filterAssignee}
+                    onChange={setFilterAssignee}
+                    options={[
+                      { value: '', label: 'Anyone' },
+                      ...(board.members?.map(m => ({ value: m.user.id, label: m.user.name })) || [])
+                    ]}
+                    placeholder="Anyone"
+                  />
                 </div>
 
                 <div style={{ marginBottom: 16 }}>
                   <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--on-surface-variant)', marginBottom: 4 }}>Label</label>
-                  <select 
-                    className="input" 
-                    value={filterLabel} 
-                    onChange={e => setFilterLabel(e.target.value)}
-                    style={{ width: '100%', padding: '6px 8px', fontSize: 13 }}
-                  >
-                    <option value="">Any Label</option>
-                    {board.labels?.map(l => (
-                      <option key={l.id} value={l.id}>{l.name}</option>
-                    ))}
-                  </select>
+                  <CustomSelect
+                    value={filterLabel}
+                    onChange={setFilterLabel}
+                    options={[
+                      { value: '', label: 'Any Label' },
+                      ...(board.labels?.map(l => ({ value: l.id, label: l.name, color: l.color })) || [])
+                    ]}
+                    placeholder="Any Label"
+                  />
                 </div>
 
                 <div style={{ display: 'flex', justifyContent: 'flex-end' }}>

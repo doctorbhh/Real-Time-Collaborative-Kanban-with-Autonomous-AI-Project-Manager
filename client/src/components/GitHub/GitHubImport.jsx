@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { GithubIcon, CircleCheckBigIcon } from "@animateicons/react/lucide";
 import api from '../../utils/api';
 import { useToast } from '../../context/ToastContext';
+import CustomSelect from '../Board/CustomSelect';
 
 export default function GitHubImport({ boardId, columns }) {
   const [repoUrl, setRepoUrl] = useState('');
@@ -132,17 +133,13 @@ export default function GitHubImport({ boardId, columns }) {
 
           <div className="input-group" style={{ marginBottom: 16 }}>
             <label className="input-label">Import into</label>
-            <select
-              className="input"
+            <CustomSelect
               value={targetColumnId}
-              onChange={e => setTargetColumnId(e.target.value)}
-              style={{ border: '1px solid var(--outline-variant)', borderRadius: 'var(--radius)', padding: '8px 12px', width: '100%' }}
+              onChange={setTargetColumnId}
+              options={columns?.map(col => ({ value: col.id, label: col.name })) || []}
+              placeholder="Select a column..."
               disabled={importing}
-            >
-              {columns?.map(col => (
-                <option key={col.id} value={col.id}>{col.name}</option>
-              ))}
-            </select>
+            />
           </div>
 
           <div style={{ display: 'flex', gap: 12 }}>
