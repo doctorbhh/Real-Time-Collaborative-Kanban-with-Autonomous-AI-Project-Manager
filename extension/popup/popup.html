@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="popup.css">
+  <title>Kanban AI</title>
+</head>
+<body>
+  <div id="view-login" class="view hidden">
+    <div class="header">
+      <div class="header-left">
+        <span class="logo">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></svg>
+        </span>
+        <h2>Kanban AI</h2>
+      </div>
+      <div class="header-right">
+        <button class="btn-icon btn-theme" title="Toggle Theme">
+          <svg class="icon-sun" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>
+        </button>
+      </div>
+    </div>
+    <p>Sign in to clip content</p>
+    
+    <div class="form-group">
+      <label for="email">Email</label>
+      <input type="email" id="email" placeholder="alice@example.com" />
+    </div>
+    <div class="form-group">
+      <label for="password">Password</label>
+      <input type="password" id="password" placeholder="••••••••" />
+    </div>
+    
+    <button id="btn-login" class="btn primary">Sign in</button>
+    <div id="login-error" class="error-msg hidden"></div>
+  </div>
+
+  <div id="view-form" class="view hidden">
+    <div class="header">
+      <div class="header-left">
+        <span class="logo">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></svg>
+        </span>
+        <h2>Kanban AI</h2>
+      </div>
+      <div class="header-right">
+        <span id="user-name">User</span>
+        <button class="btn-icon btn-theme" title="Toggle Theme">
+          <svg class="icon-sun" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>
+        </button>
+        <button id="btn-logout" class="btn-icon" title="Logout">
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></svg>
+        </button>
+      </div>
+    </div>
+    
+    <div class="form-group">
+      <label for="title">Title</label>
+      <input type="text" id="title" placeholder="Card Title" />
+      <div id="title-error" class="error-msg hidden"></div>
+    </div>
+    
+    <div class="form-group">
+      <label for="description">Description</label>
+      <textarea id="description" rows="4" placeholder="Description..."></textarea>
+    </div>
+    
+    <div class="form-group">
+      <label for="reference-url">Reference URL</label>
+      <input type="url" id="reference-url" placeholder="https://..." />
+    </div>
+    
+    <div class="form-row">
+      <div class="form-group half">
+        <label for="board-select">Board</label>
+        <select id="board-select">
+          <option value="" disabled selected>Loading...</option>
+        </select>
+      </div>
+      <div class="form-group half">
+        <label for="column-select">Column</label>
+        <select id="column-select">
+          <option value="" disabled selected>Select board first</option>
+        </select>
+      </div>
+    </div>
+    
+    <button id="btn-create" class="btn primary">Create Card</button>
+    <div id="create-error" class="error-msg hidden"></div>
+  </div>
+
+  <div id="view-success" class="view hidden">
+    <div class="success-icon">
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+    </div>
+    <h3>Card created!</h3>
+    <p id="success-message">Added to Backlog</p>
+    <div class="action-buttons">
+      <button id="btn-clip-another" class="btn secondary">Clip another</button>
+      <button id="btn-open-board" class="btn primary">Open board</button>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
