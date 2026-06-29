@@ -1,24 +1,20 @@
-// test/load-test.js
-// Run with: node test/load-test.js
+
 
 const { io } = require('socket.io-client');
 
-// ─── CONFIG ─────────────────────────────────────────────────────────────────
 
-const SERVER_URL = process.env.SERVER_URL || 'http://127.0.0.1:3000'; // Updated to 3000 to match your dev server
+const SERVER_URL = process.env.SERVER_URL || 'http://127.0.0.1:3000';
 const NUM_USERS = 10;
-const NUM_MOVES = 20;       // how many card moves to test
-const MOVE_INTERVAL = 500;  // ms between moves
+const NUM_MOVES = 20;
+const MOVE_INTERVAL = 500;
 
-// Pre-created test accounts — create these manually before running the test
-// or generate them in the setup phase below
+
 const TEST_USERS = Array.from({ length: NUM_USERS }, (_, i) => ({
   email: `testuser${i + 1}@loadtest.dev`,
   password: 'loadtest123',
   name: `Test User ${i + 1}`,
 }));
 
-// ─── UTILITIES ───────────────────────────────────────────────────────────────
 
 async function apiPost(path, body, token) {
   const res = await fetch(`${SERVER_URL}/api${path}`, {
@@ -51,7 +47,6 @@ function formatLatency(ms) {
   return `${ms.toFixed(2)}ms`;
 }
 
-// ─── PHASE 1: SETUP ─────────────────────────────────────────────────────────
 
 async function setupTestEnvironment() {
   console.log('\n━━━ PHASE 1: Setting up test environment ━━━\n');
@@ -59,21 +54,20 @@ async function setupTestEnvironment() {
   const tokens = [];
   const userIds = [];
 
-  // Register or login all test users
   for (const user of TEST_USERS) {
     try {
       const result = await apiPost('/auth/register', user);
-      tokens.push(result.user.apiKey); // Using apiKey as token based on previous auth adjustments
+      tokens.push(result.user.apiKey);
       userIds.push(result.user.id);
       process.stdout.write(`✓ Created ${user.name}\n`);
     } catch {
-      // User already exists — log in instead
+
       try {
         const result = await apiPost('/auth/login', {
           email: user.email,
           password: user.password,
         });
-        tokens.push(result.user.apiKey); // Using apiKey as token based on previous auth adjustments
+        tokens.push(result.user.apiKey);
         userIds.push(result.user.id);
         process.stdout.write(`✓ Logged in ${user.name}\n`);
       } catch (err) {
@@ -82,10 +76,9 @@ async function setupTestEnvironment() {
     }
   }
 
-  // 2. Setup board
+
   let board, columns, backlogCol, doneCol;
-  
-  // See if "Sprint 12 — Launch Features" exists
+
   const boardsRes = await fetch(`${SERVER_URL}/api/boards`, { headers: { Authorization: `Bearer ${tokens[0]}` } });
   const { boards } = await boardsRes.json();
   const existingBoard = boards.find(b => b.name === 'Sprint 12 — Launch Features');
@@ -93,13 +86,12 @@ async function setupTestEnvironment() {
   if (existingBoard) {
     board = existingBoard;
     console.log(`\n  ✓ Found existing board: "${board.name}" (${board.id})`);
-    
-    // Ensure all test users are invited
+
     for (let i = 1; i < NUM_USERS; i++) {
       try {
         await apiPost(`/boards/${board.id}/members`, { email: TEST_USERS[i].email }, tokens[0]);
       } catch (e) {
-        // Might already be a member
+
       }
     }
     console.log(`  ✓ Ensured ${NUM_USERS - 1} test members are on board`);
@@ -115,7 +107,7 @@ async function setupTestEnvironment() {
     board = boardRes.board;
     console.log(`\n  ✓ Created board: "${board.name}" (${board.id})`);
 
-    // 3. Invite other 9 users
+
     for (let i = 1; i < NUM_USERS; i++) {
       await apiPost(`/boards/${board.id}/members`, { email: TEST_USERS[i].email }, tokens[0]);
     }
@@ -128,7 +120,7 @@ async function setupTestEnvironment() {
     doneCol = columns.find((c) => c.name === 'Done') || columns[columns.length - 1];
   }
 
-  // Create test cards to move
+
   console.log(`\nCreating ${NUM_MOVES} test cards...`);
   const cardIds = [];
   for (let i = 0; i < NUM_MOVES; i++) {
@@ -144,10 +136,8 @@ async function setupTestEnvironment() {
   return { tokens, userIds, board, columns, backlogCol, doneCol, cardIds };
 }
 
-// ─── GLOBALS FOR TESTING ───────────────────────────────────────────────────────
 let latestGlobalPresence = [];
 
-// ─── PHASE 2: CONNECT ALL SOCKETS ───────────────────────────────────────────
 
 async function connectAllUsers(tokens, boardId) {
   console.log('\n━━━ PHASE 2: Connecting all users via WebSocket ━━━\n');
@@ -170,14 +160,14 @@ async function connectAllUsers(tokens, boardId) {
           const connectTime = Date.now() - startConnect;
           connectTimes.push(connectTime);
           console.log(`  User ${i + 1} connected in ${formatLatency(connectTime)} (socket: ${socket.id})`);
-          
+
           if (i === 0) {
             socket.on('board:presence', (users) => {
               latestGlobalPresence = users;
             });
           }
 
-          socket.emit('board:join', { boardId, userName: TEST_USERS[i].name }); 
+          socket.emit('board:join', { boardId, userName: TEST_USERS[i].name });
           sockets.push({ socket, userId: i, token, boardId });
           resolve();
         });
@@ -193,21 +183,20 @@ async function connectAllUsers(tokens, boardId) {
   console.log(`  Avg connect time: ${formatLatency(connectTimes.reduce((a, b) => a + b) / connectTimes.length)}`);
   console.log(`  Max connect time: ${formatLatency(Math.max(...connectTimes))}`);
 
-  // Wait for all board:join events to propagate
+
   await sleep(500);
 
   return sockets;
 }
 
-// ─── PHASE 3: MEASURE PROPAGATION LATENCY ───────────────────────────────────
 
 async function measurePropagationLatency(sockets, cardIds, backlogCol, doneCol, tokens) {
   console.log('\n━━━ PHASE 3: Measuring event propagation latency ━━━\n');
   console.log(`Running ${NUM_MOVES} card moves, one every ${MOVE_INTERVAL}ms\n`);
 
   const results = [];
-  const sender = sockets[0]; // User 0 does all the moves
-  const receivers = sockets.slice(1); // Users 1-9 listen
+  const sender = sockets[0];
+  const receivers = sockets.slice(1);
 
   for (let i = 0; i < cardIds.length; i++) {
     const cardId = cardIds[i];
@@ -215,7 +204,7 @@ async function measurePropagationLatency(sockets, cardIds, backlogCol, doneCol, 
       const receivedAt = new Array(receivers.length).fill(null);
       let receiveCount = 0;
 
-      // Set up listeners on all receiver sockets
+
       const cleanup = receivers.map((r, idx) => {
         const handler = (event) => {
           if (event.cardId === cardId || (event.card && event.card.id === cardId)) {
@@ -223,7 +212,7 @@ async function measurePropagationLatency(sockets, cardIds, backlogCol, doneCol, 
             receiveCount++;
 
             if (receiveCount === receivers.length) {
-              // All receivers got the event
+
               cleanup.forEach(fn => fn());
               resolve({ receivedAt, sentAt });
             }
@@ -233,13 +222,13 @@ async function measurePropagationLatency(sockets, cardIds, backlogCol, doneCol, 
         return () => r.socket.off('card:moved', handler);
       });
 
-      // Set a timeout in case some receivers miss the event
+
       const timeout = setTimeout(() => {
         cleanup.forEach(fn => fn());
         resolve({ receivedAt, sentAt, timedOut: true });
       }, 5000);
 
-      // Record send time and fire the move
+
       const sentAt = Date.now();
       await fetch(`${SERVER_URL}/api/boards/${sender.boardId}/cards/${cardId}/move`, {
         method: 'PATCH',
@@ -253,11 +242,11 @@ async function measurePropagationLatency(sockets, cardIds, backlogCol, doneCol, 
         }),
       });
 
-      // Clear timeout if we got all responses
+
       clearTimeout(timeout);
     });
 
-    // Calculate latencies for this move
+
     const latencies = moveResult.receivedAt
       .map(t => t !== null ? t - moveResult.sentAt : null)
       .filter(t => t !== null);
@@ -269,7 +258,7 @@ async function measurePropagationLatency(sockets, cardIds, backlogCol, doneCol, 
 
     results.push({ move: i + 1, avgLatency, maxLatency, minLatency, missed, timedOut: moveResult.timedOut });
 
-    // Log per-move result
+
     const status = missed > 0 ? '⚠' : '✓';
     console.log(
       `  ${status} Move ${String(i + 1).padStart(2)}: ` +
@@ -285,7 +274,6 @@ async function measurePropagationLatency(sockets, cardIds, backlogCol, doneCol, 
   return results;
 }
 
-// ─── PHASE 4: CONCURRENT EDIT TEST ──────────────────────────────────────────
 
 async function testConcurrentEdits(sockets, cardIds, tokens, boardId) {
   console.log('\n━━━ PHASE 4: Concurrent edit conflict detection ━━━\n');
@@ -293,7 +281,6 @@ async function testConcurrentEdits(sockets, cardIds, tokens, boardId) {
   const targetCard = cardIds[0];
   const conflictsDetected = [];
 
-  // Listen for conflict notifications on all sockets
   sockets.forEach((s, i) => {
     s.socket.on('card:updated', (event) => {
       if (event.conflictDetected && event.card.id === targetCard) {
@@ -302,7 +289,6 @@ async function testConcurrentEdits(sockets, cardIds, tokens, boardId) {
     });
   });
 
-  // Simulate 5 users editing the same card title simultaneously
   console.log('  Sending 5 simultaneous edits to the same card...');
   const editStart = Date.now();
 
@@ -316,13 +302,13 @@ async function testConcurrentEdits(sockets, cardIds, tokens, boardId) {
         },
         body: JSON.stringify({
           title: `Concurrent edit by User ${i + 1} at ${Date.now()}`,
-          baseVersion: 0, // all claiming to edit from version 0
+          baseVersion: 0,
         }),
       });
     })
   );
 
-  await sleep(1000); // wait for socket events
+  await sleep(1000);
 
   console.log(`  ✓ All 5 edits sent in ${Date.now() - editStart}ms`);
   console.log(`  ✓ Conflicts detected on ${conflictsDetected.length} clients`);
@@ -331,13 +317,12 @@ async function testConcurrentEdits(sockets, cardIds, tokens, boardId) {
   return conflictsDetected.length;
 }
 
-// ─── PHASE 5: PRESENCE TEST ──────────────────────────────────────────────────
+
 
 async function testPresence(sockets) {
   console.log('\n━━━ PHASE 5: Presence system ━━━\n');
 
   return new Promise((resolve) => {
-    // We already listened on user 0's socket for presence updates during join
     const latestPresence = latestGlobalPresence;
 
     setTimeout(() => {
@@ -350,7 +335,6 @@ async function testPresence(sockets) {
   });
 }
 
-// ─── PHASE 6: REPORT ─────────────────────────────────────────────────────────
 
 function generateReport(connectionResults, propagationResults, conflictCount, presenceCount) {
   console.log('\n' + '═'.repeat(60));
@@ -400,7 +384,7 @@ function generateReport(connectionResults, propagationResults, conflictCount, pr
   ${presenceCount === NUM_USERS ? '✓ PASS' : '✗ FAIL'}  Presence system ${presenceCount === NUM_USERS ? 'working correctly' : 'not showing all users'}
 `);
 
-  // Machine-readable output for README
+
   const readmeTable = `
 ## Load Test Results
 
@@ -424,7 +408,6 @@ Tested ${new Date().toLocaleDateString()} on ${SERVER_URL === 'http://localhost:
   console.log(readmeTable);
 }
 
-// ─── PHASE 7: CLEANUP ────────────────────────────────────────────────────────
 
 async function cleanup(sockets) {
   console.log('\n━━━ Cleanup ━━━\n');
@@ -432,7 +415,6 @@ async function cleanup(sockets) {
   console.log('  ✓ All sockets disconnected');
 }
 
-// ─── MAIN ────────────────────────────────────────────────────────────────────
 
 async function main() {
   console.log('╔════════════════════════════════════════════════╗');
@@ -446,7 +428,6 @@ async function main() {
     const env = await setupTestEnvironment();
     sockets = await connectAllUsers(env.tokens, env.board.id);
 
-    // Attach boardId to sender reference
     sockets[0].boardId = env.board.id;
 
     const propagationResults = await measurePropagationLatency(

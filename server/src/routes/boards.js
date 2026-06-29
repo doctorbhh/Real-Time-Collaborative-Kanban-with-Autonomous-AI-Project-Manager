@@ -158,8 +158,7 @@ router.delete('/:boardId/members/:userId', requireAuth, requireBoardMember, asyn
     if (req.boardRole !== 'owner') {
       return res.status(403).json({ error: 'Only the board owner can remove members' });
     }
-    
-    // Prevent owner from removing themselves (unless we want to support leaving boards)
+
     if (req.params.userId === req.userId) {
       return res.status(400).json({ error: 'Cannot remove yourself' });
     }

@@ -1331,7 +1331,7 @@ img {
   background: rgba(199, 196, 215, 0.3);
 }
 
-/* Progress bar */
+
 .ai-progress-bar {
   width: 100%;
   height: 8px;
@@ -1346,7 +1346,7 @@ img {
   transition: width var(--transition-smooth);
 }
 
-/* Insight card (for existing data) */
+
 
 .insight-card {
   background: var(--surface-container-lowest);
@@ -1399,7 +1399,7 @@ img {
   50% { opacity: 0.6; }
 }
 
-/* Inline card creation */
+
 .inline-card-create {
   background: var(--surface-container-lowest);
   border: 2px solid var(--primary);
@@ -1437,7 +1437,7 @@ img {
   margin-top: var(--space-xs);
 }
 
-/*MODAL*/
+
 
 .modal-backdrop {
   position: fixed;
@@ -1502,7 +1502,7 @@ img {
   border-top: 1px solid var(--outline-variant);
 }
 
-/*PROGRESS BARS*/
+
 
 .progress-bar {
   width: 100%;
@@ -1523,7 +1523,7 @@ img {
 .progress-bar-fill.danger { background: var(--error); }
 .progress-bar-fill.primary { background: var(--primary); }
 
-/*TEAM VIEW*/
+
 
 .team-grid {
   display: grid;
@@ -1609,7 +1609,7 @@ img {
   margin-top: var(--space-sm);
 }
 
-/*TOAST NOTIFICATION*/
+
 
 .toast-container {
   position: fixed;
@@ -1659,7 +1659,7 @@ img {
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
-/*PRESENCE INDICATORS*/
+
 
 .presence-indicator {
   display: flex;
@@ -1691,7 +1691,7 @@ img {
   z-index: 1;
 }
 
-/* DIGEST / REPORT VIEW*/
+
 
 .digest-container { max-width: 800px; margin: 0 auto; }
 .digest-header { margin-bottom: var(--space-xl); }
@@ -1730,9 +1730,7 @@ img {
 .velocity-bar-label { font-size: 11px; font-weight: 500; color: var(--outline); }
 .velocity-bar-value { font-size: 13px; font-weight: 700; color: var(--on-surface); }
 
-/* 
-   GITHUB IMPORT
-    */
+
 
 .github-import-panel { max-width: 600px; }
 .github-input-row { display: flex; gap: var(--space-sm); }
@@ -1760,9 +1758,7 @@ img {
 .github-issue-number { font-family: var(--font-mono); font-size: 12px; color: var(--outline); min-width: 40px; }
 .github-issue-title { flex: 1; font-size: 13px; color: var(--on-surface); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-/* 
-   AUTH PAGES
-    */
+
 
 .auth-page {
   display: flex;

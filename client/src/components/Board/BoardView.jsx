@@ -120,8 +120,7 @@ export default function BoardView({ board, setBoard, searchQuery = '' }) {
   useEffect(() => {
     if (!board?.id) return;
 
-    // Fetch the latest board data immediately on mount to ensure we have fresh data
-    // (e.g., after returning from the GitHub Import view where background updates happened)
+    
     api.getBoard(board.id)
       .then(data => setBoard(data.board))
       .catch(err => console.error('Failed to fetch initial board state:', err));

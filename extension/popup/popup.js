@@ -35,13 +35,23 @@ function getPageContent() {
   const selectedText = window.getSelection()?.toString()?.trim() ?? '';
   const pageTitle = document.title;
   const pageUrl = window.location.href;
-  const metaDescription = document.querySelector('meta[name="description"]')?.content ?? '';
+  
+  let metaDescription = document.querySelector('meta[name="description"]')?.content || 
+                        document.querySelector('meta[property="og:description"]')?.content;
+  
+  if (!metaDescription) {
+    const paragraphs = Array.from(document.querySelectorAll('p'));
+    const firstGoodParagraph = paragraphs.find(p => p.innerText.trim().length > 50);
+    if (firstGoodParagraph) {
+      metaDescription = firstGoodParagraph.innerText.trim();
+    }
+  }
 
   return {
     selectedText,
     pageTitle,
     pageUrl,
-    metaDescription,
+    metaDescription: metaDescription || '',
     hasSelection: selectedText.length > 0,
   };
 }
@@ -236,11 +246,15 @@ boardSelect.addEventListener('change', async (e) => {
 async function getContentFromTab() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
+  const isPdf = tab.url?.toLowerCase().includes('.pdf') || tab.url?.toLowerCase().includes('/pdf/');
+  
   const fallback = {
-    pageTitle: tab.title ?? '',
+    pageTitle: tab.title ?? (isPdf ? tab.url.split('/').pop() : ''),
     pageUrl: tab.url ?? '',
     selectedText: '',
-    hasSelection: false
+    hasSelection: false,
+    isPdf: isPdf,
+    injectionFailed: true
   };
 
   if (!tab.id || tab.url?.startsWith('chrome://') || tab.url?.startsWith('chrome-extension://')) {
@@ -252,7 +266,14 @@ async function getContentFromTab() {
       target: { tabId: tab.id },
       func: getPageContent,
     });
-    return results[0]?.result ?? fallback;
+    const injected = results[0]?.result ?? {};
+    return { 
+      ...fallback, 
+      ...injected, 
+      pageTitle: injected.pageTitle || fallback.pageTitle,
+      isPdf: isPdf, 
+      injectionFailed: false 
+    };
   } catch (err) {
     console.warn('Script injection failed:', err);
     return fallback;
@@ -281,7 +302,14 @@ async function preFillContent() {
   } else {
 
     titleInput.value = content.pageTitle.length > 200 ? content.pageTitle.slice(0, 200) + '...' : content.pageTitle;
-    descriptionInput.value = content.metaDescription || '';
+    
+    if (content.isPdf) {
+      descriptionInput.value = 'PDF detected — add a description manually';
+    } else if (content.injectionFailed) {
+      descriptionInput.value = 'Content extraction unavailable — add a description manually';
+    } else {
+      descriptionInput.value = content.metaDescription || '';
+    }
   }
 
   referenceUrlInput.value = content.pageUrl.startsWith('javascript:') ? '' : content.pageUrl;

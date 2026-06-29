@@ -123,11 +123,11 @@ export default function CardDetail({ card: initialCard, boardId, labels, members
     let optimisticLabels;
 
     if (isApplied) {
-      // Remove label
+     
       optimisticLabels = (card.labels || []).filter(cl => cl.labelId !== labelId && cl.label?.id !== labelId);
       newLabelIds = optimisticLabels.map(cl => cl.labelId || cl.label?.id);
     } else {
-      // Add label — build optimistic entry from the board labels list
+      
       const matchedLabel = labels?.find(l => l.id === labelId);
       const newEntry = { labelId, label: matchedLabel || { id: labelId, name: '...', color: '#999' } };
       optimisticLabels = [...(card.labels || []), newEntry];

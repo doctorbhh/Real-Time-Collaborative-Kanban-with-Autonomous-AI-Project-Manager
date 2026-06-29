@@ -65,8 +65,8 @@ class LLMClient {
         if (match && match[1]) {
           delayMs = Math.ceil(parseFloat(match[1]) * 1000) + 2000;
         }
-        delayMs += Math.random() * 2000; // Jitter
-        console.warn(`[Complete] LLM Rate limit hit. Retrying in ${(delayMs/1000).toFixed(1)}s (Attempt ${attempt}/${maxRetries - 1})...`);
+        delayMs += Math.random() * 2000;
+        console.warn(`[Complete] LLM Rate limit hit. Retrying in ${(delayMs / 1000).toFixed(1)}s (Attempt ${attempt}/${maxRetries - 1})...`);
         await new Promise(res => setTimeout(res, delayMs));
         continue;
       }
@@ -110,8 +110,8 @@ class LLMClient {
         if (match && match[1]) {
           delayMs = Math.ceil(parseFloat(match[1]) * 1000) + 2000;
         }
-        delayMs += Math.random() * 2000; // Jitter
-        console.warn(`[Stream] LLM Rate limit hit. Retrying in ${(delayMs/1000).toFixed(1)}s (Attempt ${attempt}/${maxRetries - 1})...`);
+        delayMs += Math.random() * 2000;
+        console.warn(`[Stream] LLM Rate limit hit. Retrying in ${(delayMs / 1000).toFixed(1)}s (Attempt ${attempt}/${maxRetries - 1})...`);
         await new Promise(res => setTimeout(res, delayMs));
         continue;
       }
