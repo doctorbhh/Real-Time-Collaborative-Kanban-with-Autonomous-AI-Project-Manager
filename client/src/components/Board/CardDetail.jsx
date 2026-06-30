@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
 import { XIcon, LinkIcon } from "@animateicons/react/lucide";
 import api from '../../utils/api';
+import { useToast } from '../../context/ToastContext';
 
 export default function CardDetail({ card: initialCard, boardId, labels, members, onClose, onUpdate }) {
+  const { addToast } = useToast();
   const [card, setCard] = useState(initialCard);
   const [title, setTitle] = useState(initialCard.title);
   const [description, setDescription] = useState(initialCard.description || '');
@@ -47,14 +49,20 @@ export default function CardDetail({ card: initialCard, boardId, labels, members
         changes.baseVersion = card.version;
         const data = await api.updateCard(boardId, card.id, changes);
         if (data.conflictDetected) {
-          alert('Conflict detected! Another user modified this card. Please refresh.');
+          addToast('Conflict: Another user modified this card while you were editing. Some changes were not saved.', 'error');
+          loadCardDetail(); // Refresh to get the latest data
+        } else {
+          addToast('Changes saved', 'success');
         }
         setCard(data.card);
         onUpdate?.(data.card);
       }
     } catch (err) {
       if (err.status === 409) {
-        alert('Conflict detected! Another user modified this card. Please refresh.');
+        addToast('Conflict: Another user modified this card. Your changes were rejected.', 'error');
+        loadCardDetail(); // Refresh to get the latest data
+      } else {
+        addToast('Failed to save changes', 'error');
       }
     } finally {
       setSaving(false);
@@ -79,7 +87,8 @@ export default function CardDetail({ card: initialCard, boardId, labels, members
         baseVersion: card.version,
       });
       if (data.conflictDetected) {
-        alert('Conflict detected! Another user modified this card.');
+        addToast('Conflict: Another user modified this card.', 'error');
+        loadCardDetail();
       }
       setCard(data.card);
       onUpdate?.(data.card);
@@ -108,7 +117,8 @@ export default function CardDetail({ card: initialCard, boardId, labels, members
         baseVersion: card.version,
       });
       if (data.conflictDetected) {
-        alert('Conflict detected! Another user modified this card.');
+        addToast('Conflict: Another user modified this card.', 'error');
+        loadCardDetail();
       }
       setCard(data.card);
       onUpdate?.(data.card);
