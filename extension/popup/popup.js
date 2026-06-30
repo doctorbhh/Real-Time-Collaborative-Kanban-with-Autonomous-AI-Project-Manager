@@ -1,4 +1,4 @@
-const API_BASE = 'http://localhost:3000';
+const API_BASE = 'https://pacific-vibrancy-production-840d.up.railway.app';
 
 
 const viewLogin = document.getElementById('view-login');

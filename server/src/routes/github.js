@@ -41,7 +41,7 @@ router.post('/:boardId/github-import/preview', requireAuth, requireBoardMember, 
         owner,
         repo,
         state: 'open',
-        per_page: 10,
+        per_page: 100,
         page: 1,
       });
     } catch (err) {
@@ -54,7 +54,6 @@ router.post('/:boardId/github-import/preview', requireAuth, requireBoardMember, 
       throw err;
     }
 
-    const totalCount = getTotalCountFromLinkHeader(response.headers.link) || response.data.length;
 
     const existingCards = await prisma.card.findMany({
       where: {
@@ -70,15 +69,25 @@ router.post('/:boardId/github-import/preview', requireAuth, requireBoardMember, 
       if (id.startsWith(`${owner}/${repo}#`)) existingCount++;
     }
 
+    const issuesOnly = response.data.filter(i => !i.pull_request);
+    const hasMore = !!(response.headers.link && response.headers.link.includes('rel="next"'));
+    
+    let totalCount = issuesOnly.length;
+    let newCount = Math.max(0, totalCount - existingCount);
+    
+    if (hasMore) {
+      totalCount = totalCount + '+';
+      newCount = newCount + '+';
+    }
+
     res.json({
       repoUrl,
       owner,
       repo,
       totalCount,
-      newCount: Math.max(0, totalCount - existingCount),
+      newCount,
       alreadyImported: existingCount,
-      samples: response.data
-        .filter(i => !i.pull_request)
+      samples: issuesOnly
         .slice(0, 5)
         .map(i => ({
           number: i.number,
