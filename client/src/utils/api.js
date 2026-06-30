@@ -65,6 +65,7 @@ export const api = {
   getInsights: (boardId) => request(`/api/boards/${boardId}/ai/insights`),
   updateInsight: (boardId, insightId, body) => request(`/api/boards/${boardId}/ai/insights/${insightId}`, { method: 'PATCH', body }),
   runAI: (boardId) => request(`/api/boards/${boardId}/ai/run`, { method: 'POST' }),
+  runAutoAssign: (boardId) => request(`/api/boards/${boardId}/ai/auto-assign`, { method: 'POST' }),
   getDigests: (boardId) => request(`/api/boards/${boardId}/ai/digest`),
   getTeamStats: (boardId) => request(`/api/boards/${boardId}/team-stats`),
 };

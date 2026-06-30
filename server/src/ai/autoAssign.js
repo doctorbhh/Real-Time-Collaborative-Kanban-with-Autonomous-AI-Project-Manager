@@ -73,11 +73,21 @@ async function suggestAssignments(boardId, io) {
   const suggestions = [];
   let isFirstCard = true;
 
-  for (const card of unassignedCards) {
+  for (let i = 0; i < unassignedCards.length; i++) {
+    const card = unassignedCards[i];
+
     if (!isFirstCard) {
       await delay(15000); 
     }
     isFirstCard = false;
+
+    if (io) {
+      io.to(`board:${boardId}`).emit('ai:auto-assign-progress', {
+        current: i + 1,
+        total: unassignedCards.length,
+        cardTitle: card.title,
+      });
+    }
 
     const labelsStr = card.labels.map(cl => cl.label.name).join(', ') || 'none';
     const prompt = `You are an agile project manager distributing tasks.

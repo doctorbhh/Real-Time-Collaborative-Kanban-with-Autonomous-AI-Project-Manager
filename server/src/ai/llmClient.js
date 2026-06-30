@@ -38,7 +38,7 @@ class LLMClient {
   }
 
   async completeGemini(prompt, maxTokens, temperature) {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${this.geminiKey}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${this.geminiKey}`;
 
     let response;
     let attempt = 0;
@@ -83,7 +83,7 @@ class LLMClient {
   }
 
   async *streamGemini(prompt, maxTokens, temperature) {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:streamGenerateContent?alt=sse&key=${this.geminiKey}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse&key=${this.geminiKey}`;
 
     let response;
     let attempt = 0;

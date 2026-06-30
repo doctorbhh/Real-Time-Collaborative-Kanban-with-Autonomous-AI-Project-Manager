@@ -12,6 +12,7 @@ export default function InsightsPanel({ boardId }) {
     sprint_risk: '',
     auto_assign: ''
   });
+  const [autoAssignProgress, setAutoAssignProgress] = useState({ current: 0, total: 0, cardTitle: '' });
   const { on, off } = useSocket();
   const endOfStreamRef = useRef(null);
 
@@ -25,6 +26,13 @@ export default function InsightsPanel({ boardId }) {
 
     const handleInsight = ({ insight }) => {
       setInsights(prev => {
+        const isDuplicate = prev.some(i => i.id === insight.id);
+        if (isDuplicate) {
+          return prev.map(i => i.id === insight.id ? insight : i);
+        }
+        if (insight.type === 'auto_assign') {
+          return [insight, ...prev];
+        }
         return [insight, ...prev.filter(i => !(i.type === insight.type && i.status === 'pending'))];
       });
       
@@ -35,6 +43,7 @@ export default function InsightsPanel({ boardId }) {
       setCurrentPhase(phase);
       if (phase === 'complete') {
         setRunning(false);
+        setAutoAssignProgress({ current: 0, total: 0, cardTitle: '' });
         setTimeout(() => setCurrentPhase(null), 3000);
       } else {
         setRunning(true);
@@ -42,6 +51,10 @@ export default function InsightsPanel({ boardId }) {
     };
 
     const handleStream = ({ type, chunk }) => {
+      if (type === 'auto_assign') {
+        // Don't display raw JSON chunks for auto_assign
+        return;
+      }
       setStreamingText(prev => ({
         ...prev,
         [type]: prev[type] + chunk
@@ -51,14 +64,20 @@ export default function InsightsPanel({ boardId }) {
       }
     };
 
+    const handleAutoAssignProgress = (data) => {
+      setAutoAssignProgress(data);
+    };
+
     on('ai:insight', handleInsight);
     on('ai:analyzing', handleAnalyzing);
     on('ai:stream', handleStream);
+    on('ai:auto-assign-progress', handleAutoAssignProgress);
 
     return () => {
       off('ai:insight', handleInsight);
       off('ai:analyzing', handleAnalyzing);
       off('ai:stream', handleStream);
+      off('ai:auto-assign-progress', handleAutoAssignProgress);
     };
   }, [boardId, on, off]);
 
@@ -89,7 +108,8 @@ export default function InsightsPanel({ boardId }) {
   const handleRunAutoAssign = async () => {
     setRunning(true);
     setStreamingText(prev => ({ ...prev, auto_assign: '' }));
-    setCurrentPhase('starting');
+    setAutoAssignProgress({ current: 0, total: 0, cardTitle: '' });
+    setCurrentPhase('auto_assign');
     try {
       await api.runAutoAssign(boardId);
     } catch (err) {
@@ -112,7 +132,55 @@ export default function InsightsPanel({ boardId }) {
   const sprintRisks = insights.filter(i => i.type === 'sprint_risk' && i.status === 'pending');
   const autoAssigns = insights.filter(i => i.type === 'auto_assign' && i.status === 'pending');
 
+  const renderAutoAssignStreamingBox = () => {
+    if (currentPhase !== 'auto_assign') return null;
+    const { current, total, cardTitle } = autoAssignProgress;
+    return (
+      <div className="ai-glass-section ai-streaming-box" style={{ borderColor: 'var(--primary)' }}>
+        <div className="ai-section-header" style={{ marginBottom: 'var(--space-sm)' }}>
+          <span className="material-symbols-outlined" style={{ fontSize: 20, color: 'var(--primary)' }}>smart_toy</span>
+          <h4 className="ai-section-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            Suggesting Assignees...
+            <span className="pulsing-dot" style={{ background: 'var(--primary)' }} />
+          </h4>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-sm)' }}>
+          {total > 0 && (
+            <>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--on-surface-variant)', marginBottom: 4 }}>
+                <span>Analyzing task {current} of {total}</span>
+                <span>{Math.round((current / total) * 100)}%</span>
+              </div>
+              <div style={{ height: 4, background: 'var(--surface-container-highest)', borderRadius: 'var(--radius-full)', overflow: 'hidden' }}>
+                <div style={{
+                  height: '100%',
+                  width: `${(current / total) * 100}%`,
+                  background: 'linear-gradient(90deg, var(--primary), var(--secondary))',
+                  borderRadius: 'var(--radius-full)',
+                  transition: 'width 0.4s ease',
+                }} />
+              </div>
+            </>
+          )}
+          {cardTitle && (
+            <div style={{ fontSize: 13, color: 'var(--on-surface)', display: 'flex', alignItems: 'center', gap: 'var(--space-xs)' }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 14, color: 'var(--primary)' }}>task_alt</span>
+              Finding best match for: <strong style={{ marginLeft: 4 }}>{cardTitle.length > 40 ? cardTitle.slice(0, 40) + '...' : cardTitle}</strong>
+            </div>
+          )}
+          {!total && (
+            <div style={{ fontSize: 13, color: 'var(--on-surface-variant)' }}>
+              Scanning unassigned tasks...
+            </div>
+          )}
+        </div>
+        <div ref={endOfStreamRef} />
+      </div>
+    );
+  };
+
   const renderStreamingBox = (type, title, icon, colorVar) => {
+    if (type === 'auto_assign') return renderAutoAssignStreamingBox();
     if (currentPhase !== type && !streamingText[type]) return null;
     return (
       <div className="ai-glass-section ai-streaming-box" style={{ borderColor: `var(${colorVar})` }}>
